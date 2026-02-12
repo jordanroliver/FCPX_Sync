@@ -132,6 +132,21 @@ def generate_fcpxml(
             })
             asset_map[v.path] = (v_asset_id, v_fmt_id, v_dur_rat, v_tc_start)
 
+        # --- Audio format (audio-only clips still need a format reference) ---
+        a_fmt_key = ("audio", v.fps_num, v.fps_den)
+        if a_fmt_key not in format_ids:
+            format_counter += 1
+            a_fmt_id = f"r{format_counter}"
+            format_ids[a_fmt_key] = a_fmt_id
+            frame_dur = _seconds_to_rational(v.fps_den / v.fps_num)
+            ET.SubElement(resources, "format", {
+                "id": a_fmt_id,
+                "name": f"FFVideoFormatRateUndefined",
+                "frameDuration": frame_dur,
+            })
+
+        a_fmt_id = format_ids[a_fmt_key]
+
         # --- Audio asset (use video's frame rate for all timing) ---
         a_dur_rat = _duration_rational(a.duration, v.fps_num, v.fps_den)
         a_tc_start = _tc_rational(a.timecode, v.fps_num, v.fps_den)
@@ -143,6 +158,7 @@ def generate_fcpxml(
                 "name": a.path.stem,
                 "start": a_tc_start,
                 "duration": a_dur_rat,
+                "format": a_fmt_id,
                 "hasAudio": "1",
                 "audioSources": "1",
                 "audioChannels": str(a.channels),
@@ -152,7 +168,7 @@ def generate_fcpxml(
                 "kind": "original-media",
                 "src": _file_url(a.path),
             })
-            asset_map[a.path] = (a_asset_id, None, a_dur_rat, a_tc_start)
+            asset_map[a.path] = (a_asset_id, a_fmt_id, a_dur_rat, a_tc_start)
 
     # Library > Event structure
     library = ET.SubElement(fcpxml, "library")
@@ -214,6 +230,8 @@ def generate_fcpxml(
             "offset": sync_point_rat,
             "start": sync_point_rat,
             "duration": a_dur_rat,
+            "format": a_fmt_id,
+            "srcEnable": "audio",
             "audioRole": "dialogue",
             "tcFormat": "NDF",
         })
