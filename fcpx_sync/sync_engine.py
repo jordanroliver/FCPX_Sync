@@ -139,17 +139,28 @@ def _get_frame_timecode(path: Path) -> Optional[str]:
     if tc and re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc):
         return tc
 
-    # Try reading the first packet side data from data stream
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-read_intervals", "%+#1",
-        "-show_entries", "packet=pts_time",
-        "-select_streams", "d:0",
-        "-of", "csv=p=0",
-        str(path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    # This gives pts_time which is just the timestamp, not TC — skip for now
+    return None
+
+
+def _get_mediainfo_timecode(path: Path) -> Optional[str]:
+    """Try to read timecode using mediainfo (handles MXF structural metadata).
+
+    mediainfo reads MXF Material/Source Package timecode that ffprobe cannot.
+    Requires mediainfo to be installed (brew install mediainfo).
+    """
+    try:
+        cmd = [
+            "mediainfo",
+            "--Inform=Other;%TimeCode_FirstFrame%",
+            str(path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        tc = result.stdout.strip()
+        if tc and re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc):
+            return tc
+    except FileNotFoundError:
+        # mediainfo not installed — skip silently
+        pass
 
     return None
 
@@ -162,6 +173,7 @@ def _extract_timecode(probe: dict, path: Path, fps: float, sample_rate: int) -> 
     2. Format tags (timecode field)
     3. BWF time_reference (sample offset from midnight, common in Sound Devices WAV)
     4. Frame-level timecode (for MXF/MOV containers)
+    5. mediainfo MXF structural metadata (Material/Source Package TC)
     """
     # 1. Check stream tags
     for stream in probe.get("streams", []):
@@ -193,6 +205,11 @@ def _extract_timecode(probe: dict, path: Path, fps: float, sample_rate: int) -> 
     frame_tc = _get_frame_timecode(path)
     if frame_tc:
         return frame_tc
+
+    # 5. mediainfo — reads MXF structural metadata that ffprobe misses
+    mi_tc = _get_mediainfo_timecode(path)
+    if mi_tc:
+        return mi_tc
 
     return None
 
