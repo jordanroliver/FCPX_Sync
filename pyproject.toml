@@ -9,9 +9,7 @@ description = "Batch audio/video sync tool for Final Cut Pro X using timecode"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
-authors = [
-    {name = "Jordan Oliver"},
-]
+authors = []
 # No Python dependencies! Only requires ffmpeg on PATH.
 dependencies = []
 

@@ -53,7 +53,7 @@ def main():
     link_h = 300 * SCALE
     thick = 76 * SCALE
     angle = 45
-    gap = 115 * SCALE
+    gap = 95 * SCALE
 
     link1 = make_link(CX - gap // 2, CY - gap // 2,
                       link_w, link_h, thick,

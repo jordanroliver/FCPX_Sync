@@ -20,3 +20,6 @@ env/
 output/*.fcpxml
 .DS_Store
 .claude/
+Screenshot*
+icon.png
+icon.icns
