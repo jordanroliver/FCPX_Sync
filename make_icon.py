@@ -1,133 +1,152 @@
-"""Generate a chain-link app icon for FCPX Sync."""
+"""Generate a chain-link app icon for FCPX Sync.
 
-import math
-from PIL import Image, ImageDraw
+Creates two truly interlocking chain links where one passes through the other.
+"""
 
+from PIL import Image, ImageDraw, ImageFilter
 
 SIZE = 1024
 CX, CY = SIZE // 2, SIZE // 2
 
 
-def draw_rounded_rect_ring(draw, cx, cy, w, h, thickness, fill, outline, angle, img):
-    """Draw a pill-shaped ring (chain link) at an angle using compositing."""
-    # Create a temp image for this link
-    link_img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    link_draw = ImageDraw.Draw(link_img)
+def make_link(cx, cy, w, h, thickness, fill, highlight, shadow, angle):
+    """Create a single chain link as an RGBA image with depth shading."""
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
 
     r_outer = h // 2
-
-    # Outer pill
     x0, y0 = cx - w // 2, cy - h // 2
     x1, y1 = cx + w // 2, cy + h // 2
-    link_draw.rounded_rectangle([x0, y0, x1, y1], radius=r_outer, fill=fill)
 
-    # Outline
-    link_draw.rounded_rectangle([x0, y0, x1, y1], radius=r_outer, outline=outline, width=4)
+    # Drop shadow (offset slightly)
+    shadow_img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow_img)
+    sd.rounded_rectangle([x0 + 6, y0 + 6, x1 + 6, y1 + 6], radius=r_outer,
+                         fill=(0, 0, 0, 80))
+    shadow_img = shadow_img.rotate(angle, center=(cx, cy), resample=Image.BICUBIC)
+    shadow_img = shadow_img.filter(ImageFilter.GaussianBlur(radius=12))
 
-    # Inner cutout (transparent)
-    shrink = thickness
-    ix0, iy0 = x0 + shrink, y0 + shrink
-    ix1, iy1 = x1 - shrink, y1 - shrink
+    # Outer shape
+    d.rounded_rectangle([x0, y0, x1, y1], radius=r_outer, fill=fill)
+
+    # Top highlight edge (gives 3D feel)
+    d.rounded_rectangle([x0 + 2, y0 + 2, x1 - 2, y0 + h // 3],
+                         radius=r_outer, fill=highlight)
+
+    # Re-draw the main fill slightly inset to blend the highlight
+    d.rounded_rectangle([x0 + 3, y0 + thickness // 3, x1 - 3, y1 - 3],
+                         radius=r_outer - 3, fill=fill)
+
+    # Outer border
+    d.rounded_rectangle([x0, y0, x1, y1], radius=r_outer, outline=shadow, width=3)
+
+    # Inner cutout
+    ix0, iy0 = x0 + thickness, y0 + thickness
+    ix1, iy1 = x1 - thickness, y1 - thickness
     r_inner = max((iy1 - iy0) // 2, 1)
-    link_draw.rounded_rectangle([ix0, iy0, ix1, iy1], radius=r_inner, fill=(0, 0, 0, 0))
+
+    # Inner shadow (dark ring around hole)
+    d.rounded_rectangle([ix0 - 4, iy0 - 4, ix1 + 4, iy1 + 4],
+                         radius=r_inner + 4, fill=shadow)
+    # Punch the hole
+    d.rounded_rectangle([ix0, iy0, ix1, iy1], radius=r_inner, fill=(0, 0, 0, 0))
 
     # Rotate
-    link_img = link_img.rotate(angle, center=(cx, cy), resample=Image.BICUBIC)
-    return link_img
+    img = img.rotate(angle, center=(cx, cy), resample=Image.BICUBIC)
+
+    return shadow_img, img
 
 
 def main():
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+    canvas = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
 
-    # macOS-style rounded square background
+    # macOS rounded-square background
     margin = 24
+    # Gradient-like background: darker center for depth
     draw.rounded_rectangle(
         [margin, margin, SIZE - margin, SIZE - margin],
-        radius=200,
-        fill=(30, 30, 46, 255),
+        radius=200, fill=(30, 30, 46, 255),
     )
-
-    # Subtle inner shadow / depth
+    # Subtle vignette ring
     draw.rounded_rectangle(
-        [margin + 4, margin + 4, SIZE - margin - 4, SIZE - margin - 4],
-        radius=196,
-        outline=(24, 24, 37, 180),
-        width=4,
+        [margin + 3, margin + 3, SIZE - margin - 3, SIZE - margin - 3],
+        radius=197, outline=(22, 22, 36, 200), width=3,
     )
 
-    # Chain link parameters
-    link_w = 380
-    link_h = 220
-    thickness = 60
+    # --- Chain link geometry ---
+    link_w = 340
+    link_h = 200
+    thickness = 56
     angle = 45
-    offset = 100  # how far apart the centers are
+    gap = 88  # distance between centers
 
-    # The links need to interlock: draw bottom half of link1, full link2, top half of link1
-    # This creates the visual illusion of interlocking
-
-    # Link 1 (blue) — shifted upper-left
-    link1 = draw_rounded_rect_ring(
-        draw, CX - offset // 2, CY - offset // 2,
-        link_w, link_h, thickness,
-        fill=(137, 180, 250, 255),
-        outline=(116, 160, 230, 255),
-        angle=angle, img=img,
+    # Link 1 (blue) — upper-left
+    l1_cx, l1_cy = CX - gap // 2, CY - gap // 2
+    l1_shadow, l1_full = make_link(
+        l1_cx, l1_cy, link_w, link_h, thickness, angle=angle,
+        fill=(120, 165, 240, 255),
+        highlight=(170, 200, 255, 200),
+        shadow=(80, 120, 200, 255),
     )
 
-    # Link 2 (teal/green) — shifted lower-right
-    link2 = draw_rounded_rect_ring(
-        draw, CX + offset // 2, CY + offset // 2,
-        link_w, link_h, thickness,
-        fill=(148, 226, 213, 255),
-        outline=(120, 200, 190, 255),
-        angle=angle, img=img,
+    # Link 2 (teal) — lower-right
+    l2_cx, l2_cy = CX + gap // 2, CY + gap // 2
+    l2_shadow, l2_full = make_link(
+        l2_cx, l2_cy, link_w, link_h, thickness, angle=angle,
+        fill=(115, 210, 200, 255),
+        highlight=(170, 240, 230, 200),
+        shadow=(70, 160, 155, 255),
     )
 
-    # Create interlocking effect:
-    # 1. Paste link1 fully
-    img.alpha_composite(link1)
+    # === INTERLOCKING COMPOSITING ===
+    # The trick: link1's upper-right arm passes IN FRONT of link2,
+    # but link1's lower-left arm passes BEHIND link2.
+    #
+    # Layering order:
+    #   1. Shadows
+    #   2. Link 1 (full)
+    #   3. Link 2 (full) — covers link1 in overlap zone
+    #   4. Link 1 again, but MASKED to only the front-crossing arm
+    #
+    # The mask dividing line runs perpendicular to the 45° link angle,
+    # i.e. at -45° through the overlap center. Everything on the
+    # upper-right side of this line is where link1 is in front.
 
-    # 2. Create a mask — only show link2 where it should be "in front"
-    #    For a chain, the right side of link2 passes in front of link1
-    #    We'll use a diagonal mask
-    mask = Image.new("L", (SIZE, SIZE), 255)
-    mask_draw = ImageDraw.Draw(mask)
+    # Step 1: shadows
+    canvas.alpha_composite(l1_shadow)
+    canvas.alpha_composite(l2_shadow)
 
-    # Block link2 on the upper-left overlap region (link1 is in front there)
-    # Use a diagonal line: everything above-left of center intersection is blocked
-    cx_int = CX
-    cy_int = CY
-    # Triangle covering upper-left area where link1 should be on top
-    mask_draw.polygon([
-        (cx_int - 200, cy_int - 200),
-        (cx_int + 60, cy_int - 200),
-        (cx_int - 200, cy_int + 60),
-    ], fill=0)
+    # Step 2: link1 full
+    canvas.alpha_composite(l1_full)
 
-    # Apply masked link2
-    link2_masked = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    link2_masked.paste(link2, mask=mask)
-    img.alpha_composite(link2_masked)
+    # Step 3: link2 full (covers link1 in overlap)
+    canvas.alpha_composite(l2_full)
 
-    # Add a subtle shine/highlight on each link
-    shine = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    shine_draw = ImageDraw.Draw(shine)
-    # Small bright spots near the top of each link
-    shine_draw.ellipse(
-        [CX - offset // 2 - 30, CY - offset // 2 - 50,
-         CX - offset // 2 + 30, CY - offset // 2 - 20],
-        fill=(255, 255, 255, 40),
-    )
-    shine_draw.ellipse(
-        [CX + offset // 2 - 30, CY + offset // 2 - 50,
-         CX + offset // 2 + 30, CY + offset // 2 - 20],
-        fill=(255, 255, 255, 40),
-    )
-    shine = shine.rotate(angle, center=(CX, CY), resample=Image.BICUBIC)
-    img.alpha_composite(shine)
+    # Step 4: re-draw link1 masked to upper-right crossing arm only
+    # The dividing line goes perpendicular to the 45° link axis,
+    # i.e. from lower-left to upper-right (-45°), through the center.
+    # Everything ABOVE this line = link1 is in front.
+    front_mask = Image.new("L", (SIZE, SIZE), 0)
+    fm = ImageDraw.Draw(front_mask)
 
-    img.save("icon.png", "PNG")
+    # The -45° line through center: y = -x + (CX+CY)
+    # Everything above-right of this line is where link1 crosses in front
+    fm.polygon([
+        (CX - 400, CY - 400),   # far upper-left
+        (CX + 400, CY - 400),   # far upper-right
+        (CX + 400, CY),         # right of center
+        (CX, CY),               # center
+    ], fill=255)
+
+    # Feather the mask edge for clean transition
+    front_mask = front_mask.filter(ImageFilter.GaussianBlur(radius=4))
+
+    l1_front = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    l1_front.paste(l1_full, mask=front_mask)
+    canvas.alpha_composite(l1_front)
+
+    canvas.save("icon.png", "PNG")
     print("Saved icon.png (1024x1024)")
 
 

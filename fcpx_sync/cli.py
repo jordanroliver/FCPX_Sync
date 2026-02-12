@@ -38,11 +38,20 @@ def run_sync(
     output_path: Path = None,
     event_name: str = "Synced Clips",
     quiet: bool = False,
+    on_progress=None,
 ) -> Path:
     """Core sync logic shared by CLI and GUI.
 
+    Args:
+        on_progress: Optional callback(message: str, step: int, total: int).
+                     Called with human-readable progress updates.
+
     Returns the output file path.
     """
+    def _emit(msg, step=0, total=0):
+        if on_progress:
+            on_progress(msg, step, total)
+
     videos = find_files(video_folder, VIDEO_EXTENSIONS)
     audios = find_files(audio_folder, AUDIO_EXTENSIONS)
 
@@ -50,6 +59,8 @@ def run_sync(
         raise FileNotFoundError(f"No video files found in {video_folder}")
     if not audios:
         raise FileNotFoundError(f"No audio files found in {audio_folder}")
+
+    _emit(f"Found {len(videos)} video, {len(audios)} audio files", 0, 0)
 
     if not quiet:
         print(f"\n  FCPX Sync v0.1.0", file=sys.stderr)
@@ -73,13 +84,16 @@ def run_sync(
         step += 1
         if callback:
             callback(step, total_files, f"Probing {vp.name}")
+        _emit(f"Reading video: {vp.name}", step, total_files)
         try:
             media = probe_media(vp)
         except Exception as e:
+            _emit(f"  Skipped {vp.name} ({e})", step, total_files)
             if not quiet:
                 print(f"         SKIPPED ({e})", file=sys.stderr)
             continue
         tc_str = str(media.timecode) if media.timecode else "NONE"
+        _emit(f"  TC: {tc_str}  dur: {media.duration:.1f}s", step, total_files)
         if not quiet:
             print(f"         TC: {tc_str}  dur: {media.duration:.1f}s", file=sys.stderr)
         video_media.append(media)
@@ -89,18 +103,22 @@ def run_sync(
         step += 1
         if callback:
             callback(step, total_files, f"Probing {ap.name}")
+        _emit(f"Reading audio: {ap.name}", step, total_files)
         try:
             media = probe_media(ap)
         except Exception:
+            _emit(f"  Skipped {ap.name} (ffprobe failed)", step, total_files)
             if not quiet:
                 print(f"         SKIPPED (ffprobe failed)", file=sys.stderr)
             continue
         tc_str = str(media.timecode) if media.timecode else "NONE"
+        _emit(f"  TC: {tc_str}  dur: {media.duration:.1f}s", step, total_files)
         if not quiet:
             print(f"         TC: {tc_str}  dur: {media.duration:.1f}s", file=sys.stderr)
         audio_media.append(media)
 
     # Match by timecode
+    _emit("Matching by timecode...", total_files, total_files)
     if not quiet:
         print(f"\n  Matching by timecode...\n", file=sys.stderr)
 
@@ -108,6 +126,8 @@ def run_sync(
 
     if not matches:
         raise RuntimeError("No timecode matches found between video and audio files.")
+
+    _emit(f"Matched {len(matches)} pair(s)", total_files, total_files)
 
     # Print results
     if not quiet:
@@ -121,13 +141,23 @@ def run_sync(
                 file=sys.stderr,
             )
 
+    for m in matches:
+        _emit(
+            f"  {m.video.path.name} ↔ {m.audio.path.name}  "
+            f"({m.offset_seconds:+.1f}s)",
+            total_files, total_files,
+        )
+
     # Generate FCPXML
+    _emit("Generating FCPXML...", total_files, total_files)
     xml_content = generate_fcpxml(matches, event_name=event_name)
 
     # Write output
     if output_path is None:
         output_path = video_folder / "synced.fcpxml"
     output_path.write_text(xml_content, encoding="utf-8")
+
+    _emit(f"Wrote {output_path.name}", total_files, total_files)
 
     if not quiet:
         print(f"  {'─' * 40}", file=sys.stderr)

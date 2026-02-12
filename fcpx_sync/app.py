@@ -4,7 +4,7 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, font as tkfont
 from pathlib import Path
 
 try:
@@ -23,110 +23,92 @@ def _fix_bundled_path():
 _fix_bundled_path()
 
 
-# Colors — Catppuccin Mocha palette
-BG = "#1e1e2e"
-SURFACE0 = "#313244"
-SURFACE1 = "#45475a"
-SURFACE2 = "#585b70"
-FG = "#cdd6f4"
-SUBTEXT = "#a6adc8"
-ACCENT = "#89b4fa"
-ACCENT_HOVER = "#74c7ec"
-GREEN = "#a6e3a1"
-RED = "#f38ba8"
-MANTLE = "#181825"
+# ── Color Palette ───────────────────────────────────────────
+# Deep dark base with cool-toned accents (inspired by pro NLE UIs)
+BG = "#13131a"
+SURFACE = "#1c1c27"
+RAISED = "#252534"
+BORDER = "#2e2e42"
+FG = "#e2e4f0"
+DIM = "#8b8da6"
+ACCENT = "#6ea5f7"
+ACCENT_DIM = "#4a7fd4"
+TEAL = "#5cd4c0"
+RED = "#f06b8a"
+GREEN = "#6ee7a0"
+LOG_BG = "#0e0e14"
 
 
-class FolderRow(tk.Frame):
-    """A row with a label, path display, and browse button."""
+# ── Helpers ─────────────────────────────────────────────────
 
-    def __init__(self, parent, label_text, **kwargs):
-        super().__init__(parent, bg=BG, **kwargs)
-        self.path_var = tk.StringVar(value="No folder selected")
+class PickerRow(tk.Frame):
+    """A file/folder picker row: section label, path display, browse button."""
 
-        label = tk.Label(
-            self, text=label_text, font=("SF Pro Display", 13, "bold"),
+    def __init__(self, parent, label_text, placeholder, browse_fn, **kw):
+        super().__init__(parent, bg=BG, **kw)
+        self._placeholder = placeholder
+        self._browse_fn = browse_fn
+        self.path_var = tk.StringVar(value=placeholder)
+
+        # Section label
+        lbl = tk.Label(
+            self, text=label_text, font=("Helvetica Neue", 11),
             fg=ACCENT, bg=BG, anchor="w",
         )
-        label.pack(fill="x", padx=4, pady=(10, 3))
+        lbl.pack(fill="x", pady=(0, 4))
 
-        row = tk.Frame(self, bg=BG)
-        row.pack(fill="x", padx=4)
+        # Row container with border
+        row = tk.Frame(self, bg=BORDER, padx=1, pady=1)
+        row.pack(fill="x")
 
-        path_label = tk.Label(
-            row, textvariable=self.path_var, font=("SF Mono", 11),
-            fg=SUBTEXT, bg=MANTLE, anchor="w", padx=10, pady=8,
-            relief="flat",
+        inner = tk.Frame(row, bg=SURFACE)
+        inner.pack(fill="both")
+
+        # Path display
+        self._path_lbl = tk.Label(
+            inner, textvariable=self.path_var,
+            font=("Menlo", 11), fg=DIM, bg=SURFACE,
+            anchor="w", padx=12, pady=10,
         )
-        path_label.pack(side="left", fill="x", expand=True, ipady=2)
+        self._path_lbl.pack(side="left", fill="x", expand=True)
 
-        browse_btn = tk.Button(
-            row, text="Browse", font=("SF Pro Display", 12, "bold"),
-            fg=FG, bg=SURFACE0, activeforeground=FG, activebackground=SURFACE1,
-            relief="flat", padx=16, pady=6,
-            command=self._browse,
+        # Browse button
+        btn = tk.Button(
+            inner, text="Browse",
+            font=("Helvetica Neue", 11, "bold"),
+            fg=FG, bg=RAISED, activeforeground=FG, activebackground=BORDER,
+            relief="flat", padx=14, pady=6, bd=0, highlightthickness=0,
+            command=self._on_browse,
         )
-        browse_btn.pack(side="right", padx=(8, 0))
+        btn.pack(side="right", padx=6, pady=4)
 
-    def _browse(self):
-        folder = filedialog.askdirectory(title="Select folder")
-        if folder:
-            self.path_var.set(folder)
+    def _on_browse(self):
+        result = self._browse_fn()
+        if result:
+            self.path_var.set(result)
+            self._path_lbl.configure(fg=FG)
 
     def get_path(self):
         val = self.path_var.get()
-        if val == "No folder selected":
+        if val == self._placeholder:
             return None
         return Path(val)
 
 
-class SaveRow(tk.Frame):
-    """A row for choosing the output file save location."""
+def _browse_folder():
+    return filedialog.askdirectory(title="Select folder")
 
-    def __init__(self, parent, label_text, **kwargs):
-        super().__init__(parent, bg=BG, **kwargs)
-        self.path_var = tk.StringVar(value="Same as video folder")
 
-        label = tk.Label(
-            self, text=label_text, font=("SF Pro Display", 13, "bold"),
-            fg=ACCENT, bg=BG, anchor="w",
-        )
-        label.pack(fill="x", padx=4, pady=(10, 3))
+def _browse_save():
+    return filedialog.asksaveasfilename(
+        title="Save FCPXML as",
+        defaultextension=".fcpxml",
+        filetypes=[("FCPXML files", "*.fcpxml"), ("All files", "*.*")],
+        initialfile="synced.fcpxml",
+    )
 
-        row = tk.Frame(self, bg=BG)
-        row.pack(fill="x", padx=4)
 
-        path_label = tk.Label(
-            row, textvariable=self.path_var, font=("SF Mono", 11),
-            fg=SUBTEXT, bg=MANTLE, anchor="w", padx=10, pady=8,
-            relief="flat",
-        )
-        path_label.pack(side="left", fill="x", expand=True, ipady=2)
-
-        browse_btn = tk.Button(
-            row, text="Browse", font=("SF Pro Display", 12, "bold"),
-            fg=FG, bg=SURFACE0, activeforeground=FG, activebackground=SURFACE1,
-            relief="flat", padx=16, pady=6,
-            command=self._browse,
-        )
-        browse_btn.pack(side="right", padx=(8, 0))
-
-    def _browse(self):
-        path = filedialog.asksaveasfilename(
-            title="Save FCPXML as",
-            defaultextension=".fcpxml",
-            filetypes=[("FCPXML files", "*.fcpxml"), ("All files", "*.*")],
-            initialfile="synced.fcpxml",
-        )
-        if path:
-            self.path_var.set(path)
-
-    def get_path(self):
-        val = self.path_var.get()
-        if val == "Same as video folder":
-            return None
-        return Path(val)
-
+# ── Main Application ───────────────────────────────────────
 
 class App:
     def __init__(self):
@@ -135,69 +117,136 @@ class App:
         self.root.configure(bg=BG)
         self.root.resizable(False, False)
 
-        # Window size
-        w, h = 580, 440
+        w, h = 560, 560
         self.root.geometry(f"{w}x{h}")
-
-        # Try to center on screen
         self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (w // 2)
-        y = (self.root.winfo_screenheight() // 2) - (h // 2)
-        self.root.geometry(f"+{x}+{y}")
+        sx = (self.root.winfo_screenwidth() // 2) - (w // 2)
+        sy = (self.root.winfo_screenheight() // 2) - (h // 2)
+        self.root.geometry(f"+{sx}+{sy}")
 
-        self._build_ui()
+        self._build()
 
-    def _build_ui(self):
-        # Title
-        title = tk.Label(
-            self.root, text="FCPX Sync", font=("SF Pro Display", 22, "bold"),
-            fg=FG, bg=BG,
+    # ── Layout ──────────────────────────────────────────────
+
+    def _build(self):
+        # Title bar area
+        header = tk.Frame(self.root, bg=BG)
+        header.pack(fill="x", padx=28, pady=(24, 0))
+
+        tk.Label(
+            header, text="FCPX Sync",
+            font=("Helvetica Neue", 20, "bold"), fg=FG, bg=BG,
+        ).pack(side="left")
+
+        tk.Label(
+            header, text="v0.2",
+            font=("Helvetica Neue", 11), fg=DIM, bg=BG,
+        ).pack(side="left", padx=(8, 0), pady=(6, 0))
+
+        # Subtitle
+        tk.Label(
+            self.root,
+            text="Batch sync video + audio by timecode",
+            font=("Helvetica Neue", 12), fg=DIM, bg=BG, anchor="w",
+        ).pack(fill="x", padx=28, pady=(2, 16))
+
+        # ── Picker rows ────────────────────────────────────
+        body = tk.Frame(self.root, bg=BG)
+        body.pack(fill="x", padx=28)
+
+        self.video_row = PickerRow(
+            body, "VIDEO FOLDER", "No folder selected", _browse_folder,
         )
-        title.pack(pady=(24, 0))
+        self.video_row.pack(fill="x", pady=(0, 10))
 
-        subtitle = tk.Label(
-            self.root, text="Batch sync video + audio by timecode",
-            font=("SF Pro Display", 12), fg=SUBTEXT, bg=BG,
+        self.audio_row = PickerRow(
+            body, "AUDIO FOLDER", "No folder selected", _browse_folder,
         )
-        subtitle.pack(pady=(2, 16))
+        self.audio_row.pack(fill="x", pady=(0, 10))
 
-        # Folder rows
-        content = tk.Frame(self.root, bg=BG)
-        content.pack(fill="x", padx=24)
+        self.save_row = PickerRow(
+            body, "SAVE LOCATION", "Same as video folder", _browse_save,
+        )
+        self.save_row.pack(fill="x", pady=(0, 16))
 
-        self.video_row = FolderRow(content, "Video Folder")
-        self.video_row.pack(fill="x")
-
-        self.audio_row = FolderRow(content, "Audio Folder")
-        self.audio_row.pack(fill="x")
-
-        self.save_row = SaveRow(content, "Save Location")
-        self.save_row.pack(fill="x")
-
-        # Sync button
-        btn_frame = tk.Frame(self.root, bg=BG)
-        btn_frame.pack(pady=(24, 0))
-
+        # ── Sync button ────────────────────────────────────
         self.sync_btn = tk.Button(
-            btn_frame, text="Sync", font=("SF Pro Display", 15, "bold"),
-            fg=BG, bg=ACCENT, activeforeground=BG, activebackground=ACCENT_HOVER,
-            relief="flat", padx=48, pady=10,
+            body, text="Sync",
+            font=("Helvetica Neue", 14, "bold"),
+            fg=BG, bg=ACCENT, activeforeground=BG, activebackground=ACCENT_DIM,
+            relief="flat", pady=10, bd=0, highlightthickness=0,
             command=self._on_sync,
         )
-        self.sync_btn.pack()
+        self.sync_btn.pack(fill="x", ipady=2)
 
-        # Status
-        self.status_var = tk.StringVar(value="")
-        self.status_label = tk.Label(
-            self.root, textvariable=self.status_var, font=("SF Pro Display", 11),
-            fg=SUBTEXT, bg=BG, wraplength=500,
+        # ── Progress log ───────────────────────────────────
+        log_lbl = tk.Label(
+            body, text="LOG", font=("Helvetica Neue", 10),
+            fg=DIM, bg=BG, anchor="w",
         )
-        self.status_label.pack(pady=(14, 0))
+        log_lbl.pack(fill="x", pady=(14, 3))
 
-    def _set_status(self, text, color=SUBTEXT):
-        self.status_var.set(text)
-        self.status_label.configure(fg=color)
+        log_border = tk.Frame(body, bg=BORDER, padx=1, pady=1)
+        log_border.pack(fill="x")
+
+        self.log_text = tk.Text(
+            log_border, height=7,
+            font=("Menlo", 10), fg=DIM, bg=LOG_BG,
+            relief="flat", padx=10, pady=8, bd=0,
+            highlightthickness=0, wrap="word",
+            insertbackground=LOG_BG, selectbackground=BORDER,
+            state="disabled",
+        )
+        self.log_text.pack(fill="both")
+
+        # Configure tag colors for log
+        self.log_text.tag_configure("info", foreground=DIM)
+        self.log_text.tag_configure("file", foreground=ACCENT)
+        self.log_text.tag_configure("match", foreground=TEAL)
+        self.log_text.tag_configure("done", foreground=GREEN)
+        self.log_text.tag_configure("err", foreground=RED)
+
+    # ── Log helpers ─────────────────────────────────────────
+
+    def _log(self, text, tag="info"):
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", text + "\n", tag)
+        self.log_text.see("end")
+        self.log_text.configure(state="disabled")
         self.root.update_idletasks()
+
+    def _log_clear(self):
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+
+    # ── Progress callback (called from worker thread) ──────
+
+    def _on_progress(self, message, step, total):
+        """Thread-safe progress handler — schedules log update on main thread."""
+        # Determine tag from message content
+        tag = "info"
+        if message.startswith("Reading video:") or message.startswith("Reading audio:"):
+            tag = "file"
+        elif "TC:" in message:
+            tag = "info"
+        elif "Matched" in message or "\u2194" in message:
+            tag = "match"
+        elif "Wrote" in message or "Generating" in message:
+            tag = "done"
+        elif "Skipped" in message:
+            tag = "err"
+
+        self.root.after(0, self._log, message, tag)
+
+        # Update button text with progress percentage
+        if total > 0:
+            pct = int(step / total * 100)
+            self.root.after(0, lambda: self.sync_btn.configure(
+                text=f"Syncing... {pct}%"
+            ))
+
+    # ── Sync logic ──────────────────────────────────────────
 
     def _on_sync(self):
         video_path = self.video_row.get_path()
@@ -205,44 +254,45 @@ class App:
         output_path = self.save_row.get_path()
 
         if not video_path:
-            self._set_status("Please select a video folder.", RED)
+            self._log("Please select a video folder.", "err")
             return
         if not audio_path:
-            self._set_status("Please select an audio folder.", RED)
+            self._log("Please select an audio folder.", "err")
             return
         if not video_path.is_dir():
-            self._set_status(f"Video folder not found: {video_path}", RED)
+            self._log(f"Video folder not found: {video_path}", "err")
             return
         if not audio_path.is_dir():
-            self._set_status(f"Audio folder not found: {audio_path}", RED)
+            self._log(f"Audio folder not found: {audio_path}", "err")
             return
 
-        self.sync_btn.configure(state="disabled", text="Syncing...", bg=SURFACE2)
-        self._set_status("Reading timecodes and matching files...", FG)
+        self._log_clear()
+        self.sync_btn.configure(state="disabled", text="Syncing...", bg=DIM)
+        self._log("Starting sync...", "info")
 
-        # Run sync in background thread to keep UI responsive
         thread = threading.Thread(
-            target=self._run_sync_thread,
+            target=self._run_sync,
             args=(video_path, audio_path, output_path),
             daemon=True,
         )
         thread.start()
 
-    def _run_sync_thread(self, video_path, audio_path, output_path):
+    def _run_sync(self, video_path, audio_path, output_path):
         try:
             result = run_sync(
                 video_folder=video_path,
                 audio_folder=audio_path,
                 output_path=output_path,
                 quiet=True,
+                on_progress=self._on_progress,
             )
-            self.root.after(0, self._on_success, result)
+            self.root.after(0, self._on_done, result)
         except Exception as e:
-            self.root.after(0, self._on_error, str(e))
+            self.root.after(0, self._on_fail, str(e))
 
-    def _on_success(self, output_path):
+    def _on_done(self, output_path):
         self.sync_btn.configure(state="normal", text="Sync", bg=ACCENT)
-        self._set_status(f"Done! Saved to: {output_path}", GREEN)
+        self._log(f"\nDone \u2192 {output_path}", "done")
         messagebox.showinfo(
             "Sync Complete",
             f"FCPXML written to:\n{output_path}\n\n"
@@ -250,9 +300,9 @@ class App:
             f"and select the file above.",
         )
 
-    def _on_error(self, error_msg):
+    def _on_fail(self, error_msg):
         self.sync_btn.configure(state="normal", text="Sync", bg=ACCENT)
-        self._set_status(f"Error: {error_msg}", RED)
+        self._log(f"\nError: {error_msg}", "err")
 
     def run(self):
         self.root.mainloop()
