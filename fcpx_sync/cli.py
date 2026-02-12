@@ -75,9 +75,9 @@ def run_sync(
             callback(step, total_files, f"Probing {vp.name}")
         try:
             media = probe_media(vp)
-        except Exception:
+        except Exception as e:
             if not quiet:
-                print(f"         SKIPPED (ffprobe failed)", file=sys.stderr)
+                print(f"         SKIPPED ({e})", file=sys.stderr)
             continue
         tc_str = str(media.timecode) if media.timecode else "NONE"
         if not quiet:

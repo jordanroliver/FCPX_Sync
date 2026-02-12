@@ -95,14 +95,18 @@ class SyncMatch:
 def _run_ffprobe(path: Path) -> dict:
     """Run ffprobe and return parsed JSON with all metadata."""
     cmd = [
-        "ffprobe", "-v", "error",
+        "ffprobe", "-v", "quiet",
         "-show_entries",
         "format=duration,tags:stream=codec_type,r_frame_rate,sample_rate,channels,width,height,tags",
         "-of", "json",
         str(path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return json.loads(result.stdout)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    # Don't use check=True — some MXF files trigger non-fatal ffprobe warnings
+    # that cause non-zero exit codes. Parse whatever JSON we got.
+    if result.stdout.strip():
+        return json.loads(result.stdout)
+    raise RuntimeError(f"ffprobe returned no data for {path.name}")
 
 
 def _get_frame_timecode(path: Path) -> Optional[str]:
