@@ -43,6 +43,22 @@ def _tc_rational(tc, fps_num: int, fps_den: int) -> str:
     return f"{result.numerator}/{result.denominator}s"
 
 
+def _tc_sample_rational(tc, sample_rate: int) -> str:
+    """Convert a Timecode to sample-accurate rational time for audio assets."""
+    if tc is None:
+        return "0/1s"
+    total_seconds = Fraction(tc.to_seconds()).limit_denominator(100000)
+    samples = round(total_seconds * sample_rate)
+    return f"{samples}/{sample_rate}s"
+
+
+def _duration_sample_rational(seconds: float, sample_rate: int) -> str:
+    """Convert duration to sample-accurate rational time for audio."""
+    dur = Fraction(seconds).limit_denominator(100000)
+    samples = round(dur * sample_rate)
+    return f"{samples}/{sample_rate}s"
+
+
 def _make_asset_id(path: Path) -> str:
     """Generate a deterministic asset ID from file path."""
     h = hashlib.md5(str(path.resolve()).encode()).hexdigest()[:8]
@@ -62,8 +78,9 @@ def generate_fcpxml(
     """Generate an FCPXML document with synchronized clips.
 
     Creates an FCPXML file with one sync-clip per matched video/audio pair.
-    The sync-clip combines the video with the external audio at the correct
-    timecode offset.
+    The structure mirrors what FCP itself generates when creating synchronized
+    clips: spine contains a gap (with audio at lane -1) followed by the video
+    asset-clip.
 
     Args:
         matches: List of SyncMatch results from the sync engine.
@@ -79,8 +96,8 @@ def generate_fcpxml(
     resources = ET.SubElement(fcpxml, "resources")
 
     # Collect format and asset info for each file
-    format_ids = {}  # (width, height, fps_num, fps_den) -> format_id
-    asset_map = {}   # path -> (asset_id, format_id_or_none, duration_rational, tc_start_rational)
+    format_ids = {}  # key -> format_id
+    asset_map = {}   # path -> asset_id
 
     format_counter = 0
 
@@ -95,33 +112,35 @@ def generate_fcpxml(
             fmt_id = f"r{format_counter}"
             format_ids[format_key] = fmt_id
 
-            frame_dur = _seconds_to_rational(v.fps_den / v.fps_num)
-            fps_label = v.fps_num // v.fps_den if v.fps_den == 1 else round(v.fps_num / v.fps_den * 100) / 100
+            # Use fps_den*100 / fps_num but keep large denominator (don't reduce)
+            # FCP expects 100/2400s for 24fps, not simplified 25/6s
+            frame_dur_num = v.fps_den * 100
+            frame_dur_den = v.fps_num * 100
+            frame_dur_str = f"{frame_dur_num}/{frame_dur_den}s"
             ET.SubElement(resources, "format", {
                 "id": fmt_id,
-                "name": f"FFVideoFormat{v.height}p{fps_label}",
-                "frameDuration": frame_dur,
+                "frameDuration": frame_dur_str,
                 "width": str(v.width),
                 "height": str(v.height),
             })
 
         v_fmt_id = format_ids[format_key]
-        v_dur_rat = _duration_rational(v.duration, v.fps_num, v.fps_den)
-        v_tc_start = _tc_rational(v.timecode, v.fps_num, v.fps_den)
 
         # --- Video asset ---
         v_asset_id = _make_asset_id(v.path)
         if v.path not in asset_map:
+            v_tc_start = _tc_rational(v.timecode, v.fps_num, v.fps_den)
+            v_dur_rat = _duration_rational(v.duration, v.fps_num, v.fps_den)
             v_attrs = {
                 "id": v_asset_id,
                 "name": v.path.stem,
                 "start": v_tc_start,
                 "duration": v_dur_rat,
-                "format": v_fmt_id,
                 "hasVideo": "1",
-                "hasAudio": "1" if v.has_audio else "0",
+                "format": v_fmt_id,
             }
             if v.has_audio:
+                v_attrs["hasAudio"] = "1"
                 v_attrs["audioSources"] = "1"
                 v_attrs["audioChannels"] = str(v.channels)
                 v_attrs["audioRate"] = str(v.sample_rate)
@@ -130,35 +149,18 @@ def generate_fcpxml(
                 "kind": "original-media",
                 "src": _file_url(v.path),
             })
-            asset_map[v.path] = (v_asset_id, v_fmt_id, v_dur_rat, v_tc_start)
+            asset_map[v.path] = v_asset_id
 
-        # --- Audio format (audio-only clips still need a format reference) ---
-        a_fmt_key = ("audio", v.fps_num, v.fps_den)
-        if a_fmt_key not in format_ids:
-            format_counter += 1
-            a_fmt_id = f"r{format_counter}"
-            format_ids[a_fmt_key] = a_fmt_id
-            frame_dur = _seconds_to_rational(v.fps_den / v.fps_num)
-            ET.SubElement(resources, "format", {
-                "id": a_fmt_id,
-                "name": f"FFVideoFormatRateUndefined",
-                "frameDuration": frame_dur,
-            })
-
-        a_fmt_id = format_ids[a_fmt_key]
-
-        # --- Audio asset (use video's frame rate for all timing) ---
-        a_dur_rat = _duration_rational(a.duration, v.fps_num, v.fps_den)
-        a_tc_start = _tc_rational(a.timecode, v.fps_num, v.fps_den)
-
+        # --- Audio asset (sample-rate timing, no format ref — matches FCP) ---
         a_asset_id = _make_asset_id(a.path)
         if a.path not in asset_map:
+            a_tc_start = _tc_sample_rational(a.timecode, a.sample_rate)
+            a_dur_str = f"{round(a.duration)}s"
             a_asset_el = ET.SubElement(resources, "asset", {
                 "id": a_asset_id,
                 "name": a.path.stem,
                 "start": a_tc_start,
-                "duration": a_dur_rat,
-                "format": a_fmt_id,
+                "duration": a_dur_str,
                 "hasAudio": "1",
                 "audioSources": "1",
                 "audioChannels": str(a.channels),
@@ -168,7 +170,7 @@ def generate_fcpxml(
                 "kind": "original-media",
                 "src": _file_url(a.path),
             })
-            asset_map[a.path] = (a_asset_id, a_fmt_id, a_dur_rat, a_tc_start)
+            asset_map[a.path] = a_asset_id
 
     # Library > Event structure
     library = ET.SubElement(fcpxml, "library")
@@ -177,62 +179,93 @@ def generate_fcpxml(
     for match in matches:
         v = match.video
         a = match.audio
-        v_asset_id, v_fmt_id, v_dur_rat, v_tc_start = asset_map[v.path]
-        a_asset_id, a_fmt_id, a_dur_rat, a_tc_start = asset_map[a.path]
+        v_asset_id = asset_map[v.path]
+        a_asset_id = asset_map[a.path]
 
+        v_fmt_id = format_ids[(v.width, v.height, v.fps_num, v.fps_den)]
         clip_name = f"{v.path.stem} - Synced"
-        sync_dur = _duration_rational(v.duration, v.fps_num, v.fps_den)
 
-        v_tc_secs = v.timecode.to_seconds()
-        a_tc_secs = a.timecode.to_seconds()
+        # Compute timecodes
+        v_tc_secs = Fraction(v.timecode.to_seconds()).limit_denominator(100000)
+        a_tc_secs = Fraction(a.timecode.to_seconds()).limit_denominator(100000)
+        a_dur = Fraction(round(a.duration))
 
-        # Create the sync-clip
+        # Frame-aligned video times
+        frame_duration = Fraction(v.fps_den, v.fps_num)
+        v_frames = round(v_tc_secs / frame_duration)
+        v_start_frac = v_frames * frame_duration
+        v_start_rat = f"{v_start_frac.numerator}/{v_start_frac.denominator}s"
+
+        v_dur_frames = round(Fraction(v.duration).limit_denominator(100000) / frame_duration)
+        v_dur_frac = v_dur_frames * frame_duration
+        v_dur_rat = f"{v_dur_frac.numerator}/{v_dur_frac.denominator}s"
+
+        # Audio sample-accurate start
+        a_start_samples = round(a_tc_secs * a.sample_rate)
+        a_start_rat = f"{a_start_samples}/{a.sample_rate}s"
+        a_dur_str = f"{round(a.duration)}s"
+
+        # Sync-clip starts at audio TC (which is typically earlier)
+        # and its duration covers the full audio
+        sync_start = f"{int(round(float(a_tc_secs)))}s"
+        sync_dur = a_dur_str
+
+        # Gap fills time between audio start and video start
+        gap_dur_secs = v_start_frac - Fraction(int(round(float(a_tc_secs))))
+        if gap_dur_secs < 0:
+            gap_dur_secs = Fraction(0)
+        # Frame-align the gap
+        gap_frames = round(gap_dur_secs / frame_duration)
+        gap_dur_frac = gap_frames * frame_duration
+        gap_dur_rat = f"{gap_dur_frac.numerator}/{gap_dur_frac.denominator}s"
+
+        # Create the sync-clip (mirrors FCP's own export structure)
         sync_clip = ET.SubElement(event, "sync-clip", {
             "name": clip_name,
-            "offset": "0/1s",
-            "start": v_tc_start,
+            "start": sync_start,
             "duration": sync_dur,
             "format": v_fmt_id,
             "tcFormat": "NDF",
         })
 
-        # Video asset-clip inside a spine (primary storyline)
+        # Spine: gap (with audio inside) → video
         spine = ET.SubElement(sync_clip, "spine")
 
-        v_clip_attrs = {
-            "ref": v_asset_id,
-            "name": v.path.stem,
-            "offset": v_tc_start,
-            "start": v_tc_start,
-            "duration": v_dur_rat,
-            "format": v_fmt_id,
-            "tcFormat": "NDF",
-        }
-        if v.has_audio:
-            v_clip_attrs["audioRole"] = "dialogue"
-        ET.SubElement(spine, "asset-clip", v_clip_attrs)
+        # Gap element — fills time before video starts
+        gap_offset = sync_start
+        gap = ET.SubElement(spine, "gap", {
+            "name": "Gap",
+            "offset": gap_offset,
+            "start": "3600s",
+            "duration": gap_dur_rat,
+        })
 
-        # Audio asset-clip as a connected clip (lane 1)
-        # Sync point = max(video_tc, audio_tc) — works for both cases:
-        #   Audio leads: skip into audio to where video starts
-        #   Video leads: delay audio to where it actually starts
-        sync_point_secs = max(v_tc_secs, a_tc_secs)
-        frame_duration = Fraction(v.fps_den, v.fps_num)
-        sync_point_frac = Fraction(sync_point_secs).limit_denominator(100000)
-        sync_point_frames = round(sync_point_frac / frame_duration)
-        sync_point_result = sync_point_frames * frame_duration
-        sync_point_rat = f"{sync_point_result.numerator}/{sync_point_result.denominator}s"
-
-        ET.SubElement(sync_clip, "asset-clip", {
-            "ref": a_asset_id,
-            "lane": "1",
+        # Audio clip inside gap at lane -1
+        audio_clip = ET.SubElement(gap, "clip", {
+            "lane": "-1",
+            "offset": "3600s",
             "name": a.path.stem,
-            "offset": sync_point_rat,
-            "start": sync_point_rat,
-            "duration": a_dur_rat,
-            "format": a_fmt_id,
-            "srcEnable": "audio",
-            "audioRole": "dialogue",
+            "start": a_start_rat,
+            "duration": a_dur_str,
+            "tcFormat": "NDF",
+        })
+
+        # Audio element referencing the audio asset
+        ET.SubElement(audio_clip, "audio", {
+            "ref": a_asset_id,
+            "offset": a_start_rat,
+            "start": a_start_rat,
+            "duration": a_dur_str,
+            "role": "dialogue",
+        })
+
+        # Video asset-clip follows the gap in the spine
+        ET.SubElement(spine, "asset-clip", {
+            "ref": v_asset_id,
+            "offset": v_start_rat,
+            "name": v.path.stem,
+            "start": v_start_rat,
+            "duration": v_dur_rat,
             "tcFormat": "NDF",
         })
 

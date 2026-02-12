@@ -63,15 +63,24 @@ def test_fcpxml_structure():
     clip = sync_clips[0]
     assert "Synced" in clip.get("name", "")
 
-    # Video asset-clip should be inside a spine
+    # Spine should exist with gap + video asset-clip
     spine = clip.find("spine")
     assert spine is not None
     video_clips = spine.findall("asset-clip")
     assert len(video_clips) == 1
 
-    # Audio asset-clip is a direct child of sync-clip (not in spine)
-    audio_clips = clip.findall("asset-clip")
-    assert len(audio_clips) == 1
+    # Gap should contain the audio clip at lane -1
+    gap = spine.find("gap")
+    assert gap is not None
+    audio_clip = gap.find("clip")
+    assert audio_clip is not None
+    assert audio_clip.get("lane") == "-1"
+
+    # Audio element inside the clip should reference the audio asset
+    audio_el = audio_clip.find("audio")
+    assert audio_el is not None
+    assert audio_el.get("ref") is not None
+    assert audio_el.get("role") == "dialogue"
 
 
 def test_video_without_audio_flag():
@@ -91,9 +100,10 @@ def test_video_without_audio_flag():
     video_clip = sync_clip.find("spine/asset-clip")
     assert video_clip.get("audioRole") is None
 
-    # Audio clip — should have audioRole
-    audio_clip = sync_clip.find("asset-clip")
-    assert audio_clip.get("audioRole") == "dialogue"
+    # Audio element inside gap/clip should have role="dialogue"
+    audio_el = sync_clip.find(".//gap/clip/audio")
+    assert audio_el is not None
+    assert audio_el.get("role") == "dialogue"
 
 
 def test_asset_uses_media_rep():
@@ -136,3 +146,27 @@ def test_asset_start_uses_timecode():
         start = asset.get("start")
         # Should NOT be 0/1s — should reflect actual timecode
         assert start != "0/1s"
+
+
+def test_gap_duration_matches_offset():
+    """Gap should fill the time between audio start and video start."""
+    video = _make_media("video.mov", "13:09:56:18", 10.0, is_video=True)
+    audio = _make_media("audio.wav", "13:09:48:00", 60.0, is_video=False)
+
+    match = SyncMatch(video=video, audio=audio, offset_seconds=8.75)
+    xml_str = generate_fcpxml([match])
+
+    xml_body = xml_str.split("<!DOCTYPE fcpxml>\n", 1)[1]
+    root = ET.fromstring(xml_body)
+
+    sync_clip = root.find(".//sync-clip")
+    gap = sync_clip.find(".//gap")
+    assert gap is not None
+
+    # Gap duration should be approximately 8.75 seconds (video TC - audio TC)
+    gap_dur = gap.get("duration")
+    assert gap_dur is not None
+    # Parse rational
+    num, den = gap_dur.rstrip("s").split("/")
+    gap_secs = int(num) / int(den)
+    assert 8.0 < gap_secs < 9.0  # approximately 8.75s
