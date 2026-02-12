@@ -13,9 +13,14 @@ AUDIO_EXTENSIONS = {".wav", ".aif", ".aiff", ".mp3", ".m4a", ".flac", ".bwf"}
 
 
 def find_files(folder: Path, extensions: set) -> list:
-    """Scan a folder for files with the given extensions."""
+    """Scan a folder for files with the given extensions.
+
+    Skips macOS resource fork files (._*) and other hidden dot-files.
+    """
     files = []
     for f in sorted(folder.iterdir()):
+        if f.name.startswith("."):
+            continue
         if f.is_file() and f.suffix.lower() in extensions:
             files.append(f)
     return files
@@ -68,7 +73,12 @@ def run_sync(
         step += 1
         if callback:
             callback(step, total_files, f"Probing {vp.name}")
-        media = probe_media(vp)
+        try:
+            media = probe_media(vp)
+        except Exception:
+            if not quiet:
+                print(f"         SKIPPED (ffprobe failed)", file=sys.stderr)
+            continue
         tc_str = str(media.timecode) if media.timecode else "NONE"
         if not quiet:
             print(f"         TC: {tc_str}  dur: {media.duration:.1f}s", file=sys.stderr)
@@ -79,7 +89,12 @@ def run_sync(
         step += 1
         if callback:
             callback(step, total_files, f"Probing {ap.name}")
-        media = probe_media(ap)
+        try:
+            media = probe_media(ap)
+        except Exception:
+            if not quiet:
+                print(f"         SKIPPED (ffprobe failed)", file=sys.stderr)
+            continue
         tc_str = str(media.timecode) if media.timecode else "NONE"
         if not quiet:
             print(f"         TC: {tc_str}  dur: {media.duration:.1f}s", file=sys.stderr)
