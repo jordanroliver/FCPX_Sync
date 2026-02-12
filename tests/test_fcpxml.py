@@ -93,7 +93,7 @@ def test_video_without_audio_flag():
 
     # Audio clip — should have audioRole
     audio_clip = sync_clip.find("asset-clip")
-    assert audio_clip.get("audioRole") == "dialogue.dialogue-1"
+    assert audio_clip.get("audioRole") == "dialogue"
 
 
 def test_asset_uses_media_rep():
