@@ -141,8 +141,6 @@ def generate_fcpxml(
             ET.SubElement(resources, "format", {
                 "id": a_fmt_id,
                 "name": f"FFAudioFormat{a.sample_rate // 1000}kHz",
-                "audioChannels": str(a.channels),
-                "audioRate": str(a.sample_rate),
             })
 
         a_fmt_id = format_ids[a_fmt_key]
