@@ -151,6 +151,22 @@ def generate_fcpxml(
             })
             asset_map[v.path] = v_asset_id
 
+        # --- Audio clip format (FCP uses a default video format for the clip timeline) ---
+        a_clip_fmt_key = ("audio_clip", v.fps_num, v.fps_den)
+        if a_clip_fmt_key not in format_ids:
+            format_counter += 1
+            a_clip_fmt_id = f"r{format_counter}"
+            format_ids[a_clip_fmt_key] = a_clip_fmt_id
+            frame_dur_num = v.fps_den * 100
+            frame_dur_den = v.fps_num * 100
+            ET.SubElement(resources, "format", {
+                "id": a_clip_fmt_id,
+                "name": "FFVideoFormat720p24",
+                "frameDuration": f"{frame_dur_num}/{frame_dur_den}s",
+                "width": "1280",
+                "height": "720",
+            })
+
         # --- Audio asset (sample-rate timing, no format ref — matches FCP) ---
         a_asset_id = _make_asset_id(a.path)
         if a.path not in asset_map:
@@ -183,6 +199,7 @@ def generate_fcpxml(
         a_asset_id = asset_map[a.path]
 
         v_fmt_id = format_ids[(v.width, v.height, v.fps_num, v.fps_den)]
+        a_clip_fmt_id = format_ids[("audio_clip", v.fps_num, v.fps_den)]
         clip_name = f"{v.path.stem} - Synced"
 
         # Compute timecodes
@@ -247,16 +264,19 @@ def generate_fcpxml(
             "name": a.path.stem,
             "start": a_start_rat,
             "duration": a_dur_str,
+            "format": a_clip_fmt_id,
             "tcFormat": "NDF",
         })
 
         # Audio element referencing the audio asset
+        # srcCh="1" tells FCP to use channel 1 (typically the mix channel)
         ET.SubElement(audio_clip, "audio", {
             "ref": a_asset_id,
             "offset": a_start_rat,
             "start": a_start_rat,
             "duration": a_dur_str,
             "role": "dialogue",
+            "srcCh": "1",
         })
 
         # Video asset-clip follows the gap in the spine
