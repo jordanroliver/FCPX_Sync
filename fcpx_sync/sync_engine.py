@@ -96,8 +96,7 @@ def _run_ffprobe(path: Path) -> dict:
     """Run ffprobe and return parsed JSON with all metadata."""
     cmd = [
         "ffprobe", "-v", "error",
-        "-show_entries",
-        "format=duration,tags:stream=codec_type,r_frame_rate,sample_rate,channels,width,height,tags",
+        "-show_format", "-show_streams",
         "-of", "json",
         str(path),
     ]
