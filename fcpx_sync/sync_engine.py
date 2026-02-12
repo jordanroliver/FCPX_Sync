@@ -126,8 +126,10 @@ def _get_frame_timecode(path: Path) -> Optional[str]:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     tc = result.stdout.strip()
-    if tc and re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc):
-        return tc
+    if tc:
+        m = re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc)
+        if m:
+            return m.group(0)
 
     # Try data stream packet tags (MXF timecode track)
     cmd = [
@@ -140,8 +142,10 @@ def _get_frame_timecode(path: Path) -> Optional[str]:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     tc = result.stdout.strip()
-    if tc and re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc):
-        return tc
+    if tc:
+        m = re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc)
+        if m:
+            return m.group(0)
 
     return None
 
@@ -160,8 +164,13 @@ def _get_mediainfo_timecode(path: Path) -> Optional[str]:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         tc = result.stdout.strip()
-        if tc and re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc):
-            return tc
+        if tc:
+            # MXF files often have multiple timecode tracks — mediainfo
+            # concatenates output for each, e.g. "13:09:56:1813:09:56:18".
+            # Extract just the first valid timecode.
+            m = re.match(r"\d{2}:\d{2}:\d{2}[:;]\d{2}", tc)
+            if m:
+                return m.group(0)
     except FileNotFoundError:
         # mediainfo not installed — skip silently
         pass
