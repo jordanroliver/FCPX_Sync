@@ -6,7 +6,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
-from .cli import run_sync
+try:
+    from .cli import run_sync
+except ImportError:
+    from fcpx_sync.cli import run_sync
 
 
 # Colors
