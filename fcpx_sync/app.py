@@ -45,11 +45,15 @@ BTN_FG = "#ffffff"
 class PickerRow(tk.Frame):
     """A file/folder picker row: section label, path display, browse button."""
 
+    # Max characters shown in the path label before truncating with "..."
+    MAX_PATH_CHARS = 38
+
     def __init__(self, parent, label_text, placeholder, browse_fn, **kw):
         super().__init__(parent, bg=BG, **kw)
         self._placeholder = placeholder
+        self._full_path = None
         self._browse_fn = browse_fn
-        self.path_var = tk.StringVar(value=placeholder)
+        self._display_var = tk.StringVar(value=placeholder)
 
         # Section label
         lbl = tk.Label(
@@ -65,17 +69,9 @@ class PickerRow(tk.Frame):
         inner = tk.Frame(row, bg=SURFACE)
         inner.pack(fill="both")
 
-        # Path display
-        self._path_lbl = tk.Label(
-            inner, textvariable=self.path_var,
-            font=("Menlo", 11), fg=DIM, bg=SURFACE,
-            anchor="w", padx=12, pady=10,
-        )
-        self._path_lbl.pack(side="left", fill="x", expand=True)
-
-        # Browse button — accent background with dark text for high contrast
+        # Browse button — pack FIRST so it always reserves its space
         btn = tk.Button(
-            inner, text="BROWSE",
+            inner, text="BROWSE", width=8,
             font=("Helvetica Neue", 11, "bold"),
             fg=BG, bg=ACCENT_DIM, activeforeground=BG, activebackground=ACCENT,
             relief="flat", padx=14, pady=6, bd=0, highlightthickness=0,
@@ -83,17 +79,32 @@ class PickerRow(tk.Frame):
         )
         btn.pack(side="right", padx=6, pady=4)
 
+        # Path display — takes remaining space, text truncated with "..."
+        self._path_lbl = tk.Label(
+            inner, textvariable=self._display_var,
+            font=("Menlo", 11), fg=DIM, bg=SURFACE,
+            anchor="w", padx=12, pady=10,
+        )
+        self._path_lbl.pack(side="left", fill="x", expand=True)
+
+    @staticmethod
+    def _truncate(path_str, max_chars):
+        """Shorten a path to max_chars, preserving the tail with '...'."""
+        if len(path_str) <= max_chars:
+            return path_str
+        return "\u2026" + path_str[-(max_chars - 1):]
+
     def _on_browse(self):
         result = self._browse_fn()
         if result:
-            self.path_var.set(result)
+            self._full_path = result
+            self._display_var.set(self._truncate(result, self.MAX_PATH_CHARS))
             self._path_lbl.configure(fg=FG)
 
     def get_path(self):
-        val = self.path_var.get()
-        if val == self._placeholder:
+        if self._full_path is None:
             return None
-        return Path(val)
+        return Path(self._full_path)
 
 
 def _browse_folder():

@@ -1,16 +1,18 @@
 """Generate a chain-link app icon for FCPX Sync.
 
-Large, clean interlocking links — no borders, no seam artifacts.
+Large, clean interlocking links — no seam artifacts.
 
 Approach: render two complete composites (one for each Z-order)
-and select between them with a diagonal mask.  The mask edge
-never cuts through the middle of a link, so there's no seam.
+and blend between them with a soft-edged diagonal mask.  The
+Gaussian blur on the mask eliminates the hard seam while the
+parallel diagonal gives clear interlocking.  Rendered at 4x
+resolution and downscaled for a crisp final image.
 """
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 OUTPUT = 1024
-SCALE = 2
+SCALE = 4
 SIZE = OUTPUT * SCALE
 CX, CY = SIZE // 2, SIZE // 2
 
@@ -63,25 +65,29 @@ def main():
 
     bg = make_bg()
 
-    # Composite A: link1 on top (for upper-right region)
+    # Composite A: link1 on top  (upper-right region — blue in front)
     comp_a = bg.copy()
     comp_a.alpha_composite(link2)
     comp_a.alpha_composite(link1)
 
-    # Composite B: link2 on top (for lower-left region)
+    # Composite B: link2 on top  (lower-left region — teal in front)
     comp_b = bg.copy()
     comp_b.alpha_composite(link1)
     comp_b.alpha_composite(link2)
 
-    # Diagonal mask PERPENDICULAR to the 45° links (top-right to bottom-left).
-    # This places the boundary in the gap between crossing points, not through them.
-    # Upper-left triangle = white (comp_a: link1/blue in front)
-    # Lower-right triangle = black (comp_b: link2/teal in front)
+    # PARALLEL diagonal mask (top-left to bottom-right — same angle as links).
+    # This splits the overlap zone so each arm clearly passes in front.
+    # Upper-right triangle = white (comp_a), lower-left = black (comp_b).
     mask = Image.new("L", (SIZE, SIZE), 0)
     d = ImageDraw.Draw(mask)
-    d.polygon([(0, 0), (SIZE, 0), (0, SIZE)], fill=255)
+    d.polygon([(0, 0), (SIZE, 0), (SIZE, SIZE)], fill=255)
 
-    # Start with comp_b, paste comp_a where mask is white
+    # Soften the mask edge with Gaussian blur — eliminates the hard seam
+    # at the transition between the two composites.  At 4x resolution a
+    # blur radius of 12 ≈ 3px at output — invisible at icon sizes.
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=12))
+
+    # Blend: comp_b where mask=0, comp_a where mask=255, smooth between
     comp_b.paste(comp_a, mask=mask)
 
     # Downscale for clean output
