@@ -88,3 +88,27 @@ def test_video_without_audio_flag():
     # Second is audio — should have audioRole
     audio_clip = asset_clips[1]
     assert audio_clip.get("audioRole") == "dialogue.dialogue-1"
+
+
+def test_asset_uses_media_rep():
+    """Assets must use media-rep child elements, not src attribute."""
+    video = _make_media("video.mov", "01:00:00:00", 10.0, is_video=True)
+    audio = _make_media("audio.wav", "01:00:00:00", 10.0, is_video=False)
+
+    match = SyncMatch(video=video, audio=audio, offset_seconds=0.0)
+    xml_str = generate_fcpxml([match])
+
+    xml_body = xml_str.split("<!DOCTYPE fcpxml>\n", 1)[1]
+    root = ET.fromstring(xml_body)
+
+    assets = root.findall(".//asset")
+    assert len(assets) >= 2
+
+    for asset in assets:
+        # No src attribute on asset itself
+        assert asset.get("src") is None
+        # Must have a media-rep child with src and kind
+        media_rep = asset.find("media-rep")
+        assert media_rep is not None
+        assert media_rep.get("src") is not None
+        assert media_rep.get("kind") == "original-media"

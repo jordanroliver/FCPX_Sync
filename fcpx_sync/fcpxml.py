@@ -103,7 +103,6 @@ def generate_fcpxml(
             v_attrs = {
                 "id": v_asset_id,
                 "name": v.path.stem,
-                "src": _file_url(v.path),
                 "start": "0/1s",
                 "duration": v_dur_rat,
                 "format": v_fmt_id,
@@ -114,7 +113,11 @@ def generate_fcpxml(
                 v_attrs["audioSources"] = "1"
                 v_attrs["audioChannels"] = str(v.channels)
                 v_attrs["audioRate"] = str(v.sample_rate)
-            ET.SubElement(resources, "asset", v_attrs)
+            v_asset_el = ET.SubElement(resources, "asset", v_attrs)
+            ET.SubElement(v_asset_el, "media-rep", {
+                "kind": "original-media",
+                "src": _file_url(v.path),
+            })
             asset_map[v.path] = (v_asset_id, v_fmt_id, v_dur_rat)
 
         # --- Audio format ---
@@ -134,10 +137,9 @@ def generate_fcpxml(
         # --- Audio asset ---
         a_asset_id = _make_asset_id(a.path)
         if a.path not in asset_map:
-            ET.SubElement(resources, "asset", {
+            a_asset_el = ET.SubElement(resources, "asset", {
                 "id": a_asset_id,
                 "name": a.path.stem,
-                "src": _file_url(a.path),
                 "start": "0/1s",
                 "duration": a_dur_rat,
                 "format": a_fmt_id,
@@ -145,6 +147,10 @@ def generate_fcpxml(
                 "audioSources": "1",
                 "audioChannels": str(a.channels),
                 "audioRate": str(a.sample_rate),
+            })
+            ET.SubElement(a_asset_el, "media-rep", {
+                "kind": "original-media",
+                "src": _file_url(a.path),
             })
             asset_map[a.path] = (a_asset_id, a_fmt_id, a_dur_rat)
 
