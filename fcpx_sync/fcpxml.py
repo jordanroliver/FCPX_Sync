@@ -132,8 +132,8 @@ def generate_fcpxml(
             })
             asset_map[v.path] = (v_asset_id, v_fmt_id, v_dur_rat, v_tc_start)
 
-        # --- Audio asset ---
-        a_dur_rat = _seconds_to_rational(a.duration)
+        # --- Audio asset (use video's frame rate for all timing) ---
+        a_dur_rat = _duration_rational(a.duration, v.fps_num, v.fps_den)
         a_tc_start = _tc_rational(a.timecode, v.fps_num, v.fps_den)
 
         a_asset_id = _make_asset_id(a.path)
