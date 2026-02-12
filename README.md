@@ -17,8 +17,8 @@ Each matched pair becomes a **synchronized clip** in FCPX with the external audi
 
 ## Requirements
 
-- **Python 3.10+**
-- **FFmpeg** (must be on your PATH)
+- **Python 3.9+** (macOS ships with 3.9)
+- **FFmpeg** (`brew install ffmpeg`)
 - **macOS** with Final Cut Pro (for importing the result)
 
 ## Install
@@ -28,11 +28,10 @@ Each matched pair becomes a **synchronized clip** in FCPX with the external audi
 git clone https://github.com/jordanroliver/FCPX_Sync.git
 cd FCPX_Sync
 
-# Install
+# Create virtual environment and install
+python3 -m venv .venv
+source .venv/bin/activate
 pip install .
-
-# Or install in dev mode
-pip install -e .
 ```
 
 ## Usage

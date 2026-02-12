@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Batch audio/video sync tool for Final Cut Pro X"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [
     {name = "Jordan Oliver"},
 ]
