@@ -73,11 +73,11 @@ class PickerRow(tk.Frame):
         )
         self._path_lbl.pack(side="left", fill="x", expand=True)
 
-        # Browse button — white text on raised surface for visibility
+        # Browse button — accent background with dark text for high contrast
         btn = tk.Button(
             inner, text="BROWSE",
             font=("Helvetica Neue", 11, "bold"),
-            fg=BTN_FG, bg=RAISED, activeforeground=BTN_FG, activebackground=ACCENT_DIM,
+            fg=BG, bg=ACCENT_DIM, activeforeground=BG, activebackground=ACCENT,
             relief="flat", padx=14, pady=6, bd=0, highlightthickness=0,
             command=self._on_browse,
         )
