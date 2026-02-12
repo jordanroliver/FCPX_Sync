@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fcpx-sync"
+version = "0.1.0"
+description = "Batch audio/video sync tool for Final Cut Pro X"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Jordan Oliver"},
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+]
+
+[project.scripts]
+fcpx-sync = "fcpx_sync.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
