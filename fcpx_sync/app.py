@@ -27,7 +27,7 @@ _fix_bundled_path()
 # Deep dark base with cool-toned accents (inspired by pro NLE UIs)
 BG = "#13131a"
 SURFACE = "#1c1c27"
-RAISED = "#252534"
+RAISED = "#353548"
 BORDER = "#2e2e42"
 FG = "#e2e4f0"
 DIM = "#8b8da6"
@@ -37,6 +37,7 @@ TEAL = "#5cd4c0"
 RED = "#f06b8a"
 GREEN = "#6ee7a0"
 LOG_BG = "#0e0e14"
+BTN_FG = "#ffffff"
 
 
 # ── Helpers ─────────────────────────────────────────────────
@@ -72,11 +73,11 @@ class PickerRow(tk.Frame):
         )
         self._path_lbl.pack(side="left", fill="x", expand=True)
 
-        # Browse button
+        # Browse button — white text on raised surface for visibility
         btn = tk.Button(
-            inner, text="Browse",
+            inner, text="BROWSE",
             font=("Helvetica Neue", 11, "bold"),
-            fg=FG, bg=RAISED, activeforeground=FG, activebackground=BORDER,
+            fg=BTN_FG, bg=RAISED, activeforeground=BTN_FG, activebackground=ACCENT_DIM,
             relief="flat", padx=14, pady=6, bd=0, highlightthickness=0,
             command=self._on_browse,
         )
@@ -134,20 +135,20 @@ class App:
         header.pack(fill="x", padx=28, pady=(24, 0))
 
         tk.Label(
-            header, text="FCPX Sync",
+            header, text="FCPX SYNC",
             font=("Helvetica Neue", 20, "bold"), fg=FG, bg=BG,
         ).pack(side="left")
 
         tk.Label(
-            header, text="v0.2",
+            header, text="V0.2",
             font=("Helvetica Neue", 11), fg=DIM, bg=BG,
         ).pack(side="left", padx=(8, 0), pady=(6, 0))
 
         # Subtitle
         tk.Label(
             self.root,
-            text="Batch sync video + audio by timecode",
-            font=("Helvetica Neue", 12), fg=DIM, bg=BG, anchor="w",
+            text="BATCH SYNC VIDEO + AUDIO BY TIMECODE",
+            font=("Helvetica Neue", 11), fg=DIM, bg=BG, anchor="w",
         ).pack(fill="x", padx=28, pady=(2, 16))
 
         # ── Picker rows ────────────────────────────────────
@@ -155,23 +156,23 @@ class App:
         body.pack(fill="x", padx=28)
 
         self.video_row = PickerRow(
-            body, "VIDEO FOLDER", "No folder selected", _browse_folder,
+            body, "VIDEO FOLDER", "NO FOLDER SELECTED", _browse_folder,
         )
         self.video_row.pack(fill="x", pady=(0, 10))
 
         self.audio_row = PickerRow(
-            body, "AUDIO FOLDER", "No folder selected", _browse_folder,
+            body, "AUDIO FOLDER", "NO FOLDER SELECTED", _browse_folder,
         )
         self.audio_row.pack(fill="x", pady=(0, 10))
 
         self.save_row = PickerRow(
-            body, "SAVE LOCATION", "Same as video folder", _browse_save,
+            body, "SAVE LOCATION", "SAME AS VIDEO FOLDER", _browse_save,
         )
         self.save_row.pack(fill="x", pady=(0, 16))
 
         # ── Sync button ────────────────────────────────────
         self.sync_btn = tk.Button(
-            body, text="Sync",
+            body, text="SYNC",
             font=("Helvetica Neue", 14, "bold"),
             fg=BG, bg=ACCENT, activeforeground=BG, activebackground=ACCENT_DIM,
             relief="flat", pady=10, bd=0, highlightthickness=0,
@@ -243,7 +244,7 @@ class App:
         if total > 0:
             pct = int(step / total * 100)
             self.root.after(0, lambda: self.sync_btn.configure(
-                text=f"Syncing... {pct}%"
+                text=f"SYNCING... {pct}%"
             ))
 
     # ── Sync logic ──────────────────────────────────────────
@@ -254,21 +255,21 @@ class App:
         output_path = self.save_row.get_path()
 
         if not video_path:
-            self._log("Please select a video folder.", "err")
+            self._log("PLEASE SELECT A VIDEO FOLDER.", "err")
             return
         if not audio_path:
-            self._log("Please select an audio folder.", "err")
+            self._log("PLEASE SELECT AN AUDIO FOLDER.", "err")
             return
         if not video_path.is_dir():
-            self._log(f"Video folder not found: {video_path}", "err")
+            self._log(f"VIDEO FOLDER NOT FOUND: {video_path}", "err")
             return
         if not audio_path.is_dir():
-            self._log(f"Audio folder not found: {audio_path}", "err")
+            self._log(f"AUDIO FOLDER NOT FOUND: {audio_path}", "err")
             return
 
         self._log_clear()
-        self.sync_btn.configure(state="disabled", text="Syncing...", bg=DIM)
-        self._log("Starting sync...", "info")
+        self.sync_btn.configure(state="disabled", text="SYNCING...", bg=DIM)
+        self._log("STARTING SYNC...", "info")
 
         thread = threading.Thread(
             target=self._run_sync,
@@ -291,8 +292,8 @@ class App:
             self.root.after(0, self._on_fail, str(e))
 
     def _on_done(self, output_path):
-        self.sync_btn.configure(state="normal", text="Sync", bg=ACCENT)
-        self._log(f"\nDone \u2192 {output_path}", "done")
+        self.sync_btn.configure(state="normal", text="SYNC", bg=ACCENT)
+        self._log(f"\nDONE \u2192 {output_path}", "done")
         messagebox.showinfo(
             "Sync Complete",
             f"FCPXML written to:\n{output_path}\n\n"
@@ -301,7 +302,7 @@ class App:
         )
 
     def _on_fail(self, error_msg):
-        self.sync_btn.configure(state="normal", text="Sync", bg=ACCENT)
+        self.sync_btn.configure(state="normal", text="SYNC", bg=ACCENT)
         self._log(f"\nError: {error_msg}", "err")
 
     def run(self):
