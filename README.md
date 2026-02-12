@@ -2,33 +2,31 @@
 
 **Free, open-source batch audio/video sync for Final Cut Pro X.**
 
-Matches external audio recordings to video clips using waveform cross-correlation, then generates an FCPXML file with synchronized clips ready for import into Final Cut Pro.
+Matches external audio recordings to video clips by timecode, then generates an FCPXML file with synchronized clips ready for import into Final Cut Pro.
 
-No timecode required. No $199 license. Just works.
+No $199 Sync-N-Link license. Zero Python dependencies. Just FFmpeg and go.
 
 ## What It Does
 
-1. Scans a folder for video files (with scratch audio) and external audio files
-2. Cross-correlates the audio waveforms to find which audio matches which video
-3. Calculates the precise sync offset (sample-accurate)
-4. Outputs an `.fcpxml` file you import into Final Cut Pro
+1. Reads embedded timecode from your video files and audio files
+2. Matches pairs by overlapping timecode ranges
+3. Calculates the precise sync offset from the timecode difference
+4. Outputs an `.fcpxml` file with one **synchronized clip** per pair
 
-Each matched pair becomes a **synchronized clip** in FCPX with the external audio replacing the camera audio.
+Each synced clip appears in FCPX as a single clip in your Event browser — video + external audio locked together.
 
 ## Requirements
 
 - **Python 3.9+** (macOS ships with 3.9)
 - **FFmpeg** (`brew install ffmpeg`)
 - **macOS** with Final Cut Pro (for importing the result)
+- Video and audio files must have **embedded timecode** (jam-synced on set)
 
 ## Install
 
 ```bash
-# Clone
 git clone https://github.com/jordanroliver/FCPX_Sync.git
 cd FCPX_Sync
-
-# Create virtual environment and install
 python3 -m venv .venv
 source .venv/bin/activate
 pip install .
@@ -36,58 +34,53 @@ pip install .
 
 ## Usage
 
-### Single folder (video + audio files mixed together)
+### GUI (recommended)
 
 ```bash
-fcpx-sync /path/to/your/media/
+fcpx-sync-gui
 ```
 
-### Separate folders
+A window opens with two folder pickers (Video Folder, Audio Folder) and a Sync button. Select your folders, click Sync, import the resulting `.fcpxml` into FCPX.
+
+### Command Line
 
 ```bash
-fcpx-sync /path/to/project/ \
-  --video-folder /path/to/video/ \
-  --audio-folder /path/to/audio/
+fcpx-sync /path/to/video/ /path/to/audio/
 ```
 
 ### Options
 
 ```
-fcpx-sync <folder> [options]
+fcpx-sync <video_folder> <audio_folder> [options]
 
-  -o, --output PATH        Output FCPXML file path (default: <folder>/synced.fcpxml)
+  -o, --output PATH        Output FCPXML file path (default: <video_folder>/synced.fcpxml)
   --event-name NAME        Name for the FCPX event (default: "Synced Clips")
-  --video-folder PATH      Separate folder for video files
-  --audio-folder PATH      Separate folder for audio files
   -q, --quiet              Suppress progress output
 ```
 
 ### Import into Final Cut Pro
 
-1. Run `fcpx-sync` on your media folder
+1. Run `fcpx-sync` or `fcpx-sync-gui`
 2. Open Final Cut Pro
 3. **File → Import → XML...**
 4. Select the generated `.fcpxml` file
-5. Your synchronized clips appear in a new Event
+5. Synchronized clips appear in a new Event
 
 ## Supported Formats
 
-**Video:** `.mov` `.mp4` `.m4v` `.mxf` `.avi` `.mkv`
+**Video:** `.mov` `.mp4` `.m4v` `.mxf` `.avi` `.mkv` `.r3d` `.braw`
 
 **Audio:** `.wav` `.aif` `.aiff` `.mp3` `.m4a` `.flac` `.bwf`
 
-(Anything FFmpeg can decode)
+(Anything FFmpeg can read timecode from)
 
 ## How It Works
 
-The tool uses **cross-correlation** — the same technique used by professional sync tools like PluralEyes and Sync-N-Link:
-
-1. **Extract audio** from each video file using FFmpeg
-2. **Downsample** both signals to 8kHz mono (fast, plenty of detail for sync)
-3. **Normalize** amplitude to prevent bias
-4. **FFT cross-correlation** (via SciPy) finds the time offset where the two signals align best
-5. **Peak detection** identifies the best match and sync confidence score
-6. **FCPXML generation** creates `<sync-clip>` elements with the correct time offsets
+1. **ffprobe** reads timecode metadata from each video and audio file
+2. **Timecode overlap** matching pairs files whose TC ranges overlap
+3. **Offset calculation** from the difference between start timecodes
+4. **FCPXML generation** creates `<sync-clip>` elements with correct offsets
+5. **Import** into FCPX produces synchronized clips in your Event browser
 
 ## License
 

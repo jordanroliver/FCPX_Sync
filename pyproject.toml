@@ -4,23 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fcpx-sync"
-version = "0.1.0"
-description = "Batch audio/video sync tool for Final Cut Pro X"
+version = "0.2.0"
+description = "Batch audio/video sync tool for Final Cut Pro X using timecode"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
     {name = "Jordan Oliver"},
 ]
-dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
-    "librosa>=0.10",
-    "soundfile>=0.12",
-]
+# No Python dependencies! Only requires ffmpeg on PATH.
+dependencies = []
 
 [project.scripts]
 fcpx-sync = "fcpx_sync.cli:main"
+fcpx-sync-gui = "fcpx_sync.gui:main"
 
 [project.optional-dependencies]
 dev = [

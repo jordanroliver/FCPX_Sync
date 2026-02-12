@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from fcpx_sync.fcpxml import generate_fcpxml, _seconds_to_rational
-from fcpx_sync.sync_engine import SyncMatch
+from fcpx_sync.sync_engine import SyncMatch, MediaFile, Timecode
 
 
 def test_seconds_to_rational():
@@ -15,70 +15,76 @@ def test_seconds_to_rational():
     assert _seconds_to_rational(0.0) == "0/1s"
 
 
-def test_fcpxml_structure(tmp_path):
-    """Generate FCPXML from fake matches and verify XML structure."""
-    # Create dummy media files so paths resolve
-    video = tmp_path / "test_video.mov"
-    audio = tmp_path / "test_audio.wav"
-    video.touch()
-    audio.touch()
-
-    match = SyncMatch(
-        video_path=video,
-        audio_path=audio,
-        offset_seconds=0.25,
-        correlation_score=0.85,
-        video_duration=10.0,
-        audio_duration=10.0,
+def _make_media(name, tc_str, duration, is_video=True):
+    return MediaFile(
+        path=Path(f"/fake/{name}"),
+        timecode=Timecode.parse(tc_str, fps=24.0),
+        duration=duration,
+        has_video=is_video,
+        has_audio=False if is_video else True,
+        fps_num=24,
+        fps_den=1,
+        width=1920 if is_video else 0,
+        height=1080 if is_video else 0,
+        sample_rate=48000,
+        channels=2,
     )
 
-    # Mock get_media_info since we don't have real files
-    import fcpx_sync.fcpxml as fcpxml_mod
-    original_fn = fcpxml_mod.get_media_info
 
-    def mock_info(path):
-        return {
-            "streams": [
-                {"codec_type": "video", "r_frame_rate": "24/1", "width": 1920, "height": 1080},
-                {"codec_type": "audio", "sample_rate": "48000", "channels": 2},
-            ],
-            "format": {"duration": "10.0"},
-        }
+def test_fcpxml_structure():
+    """Generate FCPXML from matches and verify XML structure."""
+    video = _make_media("test_video.mov", "01:00:00:00", 10.0, is_video=True)
+    audio = _make_media("test_audio.wav", "01:00:00:00", 10.0, is_video=False)
 
-    fcpxml_mod.get_media_info = mock_info
+    match = SyncMatch(video=video, audio=audio, offset_seconds=0.0)
 
-    try:
-        xml_str = generate_fcpxml([match], event_name="Test Event")
+    xml_str = generate_fcpxml([match], event_name="Test Event")
 
-        # Parse and verify structure
-        # Strip the DOCTYPE since ET can't parse it
-        xml_body = xml_str.split("<!DOCTYPE fcpxml>\n", 1)[1]
-        root = ET.fromstring(xml_body)
+    # Parse and verify structure (strip DOCTYPE since ET can't parse it)
+    xml_body = xml_str.split("<!DOCTYPE fcpxml>\n", 1)[1]
+    root = ET.fromstring(xml_body)
 
-        assert root.tag == "fcpxml"
-        assert root.get("version") is not None
+    assert root.tag == "fcpxml"
+    assert root.get("version") is not None
 
-        # Should have resources
-        resources = root.find("resources")
-        assert resources is not None
+    resources = root.find("resources")
+    assert resources is not None
 
-        # Should have library > event > sync-clip
-        library = root.find("library")
-        assert library is not None
+    library = root.find("library")
+    assert library is not None
 
-        event = library.find("event")
-        assert event is not None
-        assert event.get("name") == "Test Event"
+    event = library.find("event")
+    assert event is not None
+    assert event.get("name") == "Test Event"
 
-        sync_clips = event.findall("sync-clip")
-        assert len(sync_clips) == 1
+    sync_clips = event.findall("sync-clip")
+    assert len(sync_clips) == 1
 
-        clip = sync_clips[0]
-        assert "Synced" in clip.get("name", "")
+    clip = sync_clips[0]
+    assert "Synced" in clip.get("name", "")
 
-        # Should have two asset-clips inside the sync-clip
-        asset_clips = clip.findall("asset-clip")
-        assert len(asset_clips) == 2
+    asset_clips = clip.findall("asset-clip")
+    assert len(asset_clips) == 2
 
-    finally:
-        fcpxml_mod.get_media_info = original_fn
+
+def test_video_without_audio_flag():
+    """Video with has_audio=False should not have audioRole on its asset-clip."""
+    video = _make_media("video.mov", "01:00:00:00", 10.0, is_video=True)
+    audio = _make_media("audio.wav", "01:00:00:00", 10.0, is_video=False)
+
+    match = SyncMatch(video=video, audio=audio, offset_seconds=0.0)
+    xml_str = generate_fcpxml([match])
+
+    xml_body = xml_str.split("<!DOCTYPE fcpxml>\n", 1)[1]
+    root = ET.fromstring(xml_body)
+
+    sync_clip = root.find(".//sync-clip")
+    asset_clips = sync_clip.findall("asset-clip")
+
+    # First asset-clip is video — should NOT have audioRole since has_audio=False
+    video_clip = asset_clips[0]
+    assert video_clip.get("audioRole") is None
+
+    # Second is audio — should have audioRole
+    audio_clip = asset_clips[1]
+    assert audio_clip.get("audioRole") == "dialogue.dialogue-1"

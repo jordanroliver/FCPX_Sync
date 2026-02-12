@@ -1,153 +1,194 @@
-"""Audio waveform cross-correlation engine for detecting sync offsets."""
+"""Timecode-based sync engine for matching video and audio files."""
 
+import json
+import re
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-
-import numpy as np
-from scipy.signal import correlate, correlation_lags
+from typing import Optional
 
 
-# Target sample rate for analysis (lower = faster, 8kHz is plenty for sync)
-ANALYSIS_SR = 8000
+@dataclass
+class Timecode:
+    """SMPTE timecode representation."""
 
-# Minimum correlation score to consider a match valid (0-1 normalized)
-MIN_CORRELATION_THRESHOLD = 0.1
+    hours: int
+    minutes: int
+    seconds: int
+    frames: int
+    fps: float  # frame rate used to convert to seconds
+
+    @classmethod
+    def parse(cls, tc_str: str, fps: float = 24.0) -> "Timecode":
+        """Parse a timecode string like '01:02:03:04' or '01:02:03;04' (drop-frame)."""
+        # Handle both : and ; separators
+        parts = re.split(r"[:;]", tc_str.strip())
+        if len(parts) != 4:
+            raise ValueError(f"Invalid timecode format: {tc_str!r}")
+        return cls(
+            hours=int(parts[0]),
+            minutes=int(parts[1]),
+            seconds=int(parts[2]),
+            frames=int(parts[3]),
+            fps=fps,
+        )
+
+    def to_seconds(self) -> float:
+        """Convert timecode to total seconds."""
+        total = self.hours * 3600 + self.minutes * 60 + self.seconds
+        total += self.frames / self.fps
+        return total
+
+    def __str__(self) -> str:
+        return f"{self.hours:02d}:{self.minutes:02d}:{self.seconds:02d}:{self.frames:02d}"
+
+
+@dataclass
+class MediaFile:
+    """Metadata for a video or audio file."""
+
+    path: Path
+    timecode: Optional[Timecode]
+    duration: float  # seconds
+    has_video: bool
+    has_audio: bool
+    fps_num: int  # e.g. 24000
+    fps_den: int  # e.g. 1001
+    width: int
+    height: int
+    sample_rate: int
+    channels: int
 
 
 @dataclass
 class SyncMatch:
     """Result of a sync match between a video and audio file."""
 
-    video_path: Path
-    audio_path: Path
-    offset_seconds: float  # positive = audio starts after video
-    correlation_score: float
-    video_duration: float
-    audio_duration: float
+    video: MediaFile
+    audio: MediaFile
+    offset_seconds: float  # how much to shift audio relative to video
 
 
-def extract_audio_from_video(video_path: Path) -> np.ndarray:
-    """Extract audio from a video file using ffmpeg and return as numpy array.
-
-    Extracts mono audio at ANALYSIS_SR sample rate as raw PCM float32.
-    """
-    cmd = [
-        "ffmpeg", "-i", str(video_path),
-        "-vn",                    # no video
-        "-ac", "1",               # mono
-        "-ar", str(ANALYSIS_SR),  # resample
-        "-f", "f32le",            # raw float32 little-endian
-        "-loglevel", "error",
-        "pipe:1",
-    ]
-    result = subprocess.run(cmd, capture_output=True, check=True)
-    return np.frombuffer(result.stdout, dtype=np.float32)
-
-
-def load_audio_file(audio_path: Path) -> np.ndarray:
-    """Load an audio file and return as numpy array at analysis sample rate."""
-    cmd = [
-        "ffmpeg", "-i", str(audio_path),
-        "-vn",
-        "-ac", "1",
-        "-ar", str(ANALYSIS_SR),
-        "-f", "f32le",
-        "-loglevel", "error",
-        "pipe:1",
-    ]
-    result = subprocess.run(cmd, capture_output=True, check=True)
-    return np.frombuffer(result.stdout, dtype=np.float32)
-
-
-def get_media_duration(path: Path) -> float:
-    """Get duration of a media file in seconds using ffprobe."""
+def _run_ffprobe(path: Path) -> dict:
+    """Run ffprobe and return parsed JSON."""
     cmd = [
         "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return float(result.stdout.strip())
-
-
-def get_media_info(path: Path) -> dict:
-    """Get detailed media info (duration, frame rate, sample rate, etc.)."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration:stream=codec_type,r_frame_rate,sample_rate,channels,width,height",
+        "-show_entries",
+        "format=duration,tags:stream=codec_type,r_frame_rate,sample_rate,channels,width,height,tags",
         "-of", "json",
         str(path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    import json
     return json.loads(result.stdout)
 
 
-def find_sync_offset(video_audio: np.ndarray, ext_audio: np.ndarray) -> tuple[float, float]:
-    """Find the time offset between two audio signals using cross-correlation.
+def _extract_timecode(probe: dict) -> Optional[str]:
+    """Extract timecode string from ffprobe output.
 
-    Returns:
-        (offset_seconds, normalized_correlation_score)
-
-        offset_seconds: How many seconds the external audio is ahead of the
-                       video audio. Positive means ext_audio starts after the
-                       video's audio begins. To sync them, you'd place the
-                       audio starting at this offset on the timeline.
+    Timecode can be in:
+    - Stream tags (timecode stream or video stream)
+    - Format tags
     """
-    # Normalize both signals to prevent amplitude bias
-    v_std = np.std(video_audio)
-    a_std = np.std(ext_audio)
+    # Check stream tags first (most reliable)
+    for stream in probe.get("streams", []):
+        tags = stream.get("tags", {})
+        tc = tags.get("timecode")
+        if tc:
+            return tc
 
-    if v_std < 1e-10 or a_std < 1e-10:
-        # One of the signals is silent - can't correlate
-        return 0.0, 0.0
+    # Check format tags
+    fmt_tags = probe.get("format", {}).get("tags", {})
+    tc = fmt_tags.get("timecode")
+    if tc:
+        return tc
 
-    v_norm = (video_audio - np.mean(video_audio)) / v_std
-    a_norm = (ext_audio - np.mean(ext_audio)) / a_std
-
-    # Cross-correlate using FFT method (fast for large arrays)
-    correlation = correlate(v_norm, a_norm, mode="full", method="fft")
-
-    # Normalize by the geometric mean of signal lengths
-    correlation /= np.sqrt(len(video_audio) * len(ext_audio))
-
-    # Find peak
-    peak_idx = np.argmax(np.abs(correlation))
-    peak_score = abs(correlation[peak_idx])
-
-    # Calculate lag from peak index
-    lags = correlation_lags(len(video_audio), len(ext_audio), mode="full")
-    lag_samples = lags[peak_idx]
-
-    # Convert to seconds. Positive lag means video_audio leads (ext_audio starts later).
-    offset_seconds = lag_samples / ANALYSIS_SR
-
-    return offset_seconds, peak_score
+    return None
 
 
-def match_files(
-    video_paths: list[Path],
-    audio_paths: list[Path],
+def _get_fps(probe: dict) -> tuple:
+    """Extract frame rate as (numerator, denominator)."""
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") == "video":
+            fps_str = stream.get("r_frame_rate", "24/1")
+            parts = fps_str.split("/")
+            num = int(parts[0])
+            den = int(parts[1]) if len(parts) > 1 else 1
+            return num, den
+    return 24, 1
+
+
+def probe_media(path: Path) -> MediaFile:
+    """Probe a media file and extract all relevant metadata."""
+    probe = _run_ffprobe(path)
+
+    # Determine stream types present
+    has_video = False
+    has_audio = False
+    fps_num, fps_den = 24, 1
+    width, height = 0, 0
+    sample_rate, channels = 48000, 2
+
+    for stream in probe.get("streams", []):
+        codec_type = stream.get("codec_type")
+        if codec_type == "video":
+            has_video = True
+            fps_str = stream.get("r_frame_rate", "24/1")
+            parts = fps_str.split("/")
+            fps_num = int(parts[0])
+            fps_den = int(parts[1]) if len(parts) > 1 else 1
+            width = stream.get("width", 1920)
+            height = stream.get("height", 1080)
+        elif codec_type == "audio":
+            has_audio = True
+            sample_rate = int(stream.get("sample_rate", 48000))
+            channels = int(stream.get("channels", 2))
+
+    # Duration
+    duration = float(probe.get("format", {}).get("duration", 0))
+
+    # Timecode
+    tc_str = _extract_timecode(probe)
+    fps_float = fps_num / fps_den if has_video else 24.0
+    timecode = Timecode.parse(tc_str, fps=fps_float) if tc_str else None
+
+    return MediaFile(
+        path=path,
+        timecode=timecode,
+        duration=duration,
+        has_video=has_video,
+        has_audio=has_audio,
+        fps_num=fps_num,
+        fps_den=fps_den,
+        width=width,
+        height=height,
+        sample_rate=sample_rate,
+        channels=channels,
+    )
+
+
+def match_by_timecode(
+    video_files: list[MediaFile],
+    audio_files: list[MediaFile],
     *,
+    tolerance_seconds: float = 0.5,
     progress_callback=None,
 ) -> list[SyncMatch]:
-    """Match video files to audio files by finding best correlation pairs.
+    """Match video and audio files by overlapping timecode.
 
-    For each video, finds the best-matching audio file based on waveform
-    cross-correlation score.
+    For each video, finds the audio file whose timecode range overlaps
+    with the video's timecode range. The sync offset is the difference
+    between their start timecodes.
 
     Args:
-        video_paths: List of video file paths.
-        audio_paths: List of external audio file paths.
-        progress_callback: Optional callable(step, total, message) for progress.
+        video_files: List of probed video MediaFile objects.
+        audio_files: List of probed audio MediaFile objects.
+        tolerance_seconds: Max gap between TC ranges to still consider a match.
+        progress_callback: Optional callable(step, total, message).
 
     Returns:
-        List of SyncMatch results for each matched pair.
+        List of SyncMatch results.
     """
-    total_steps = len(video_paths) + len(audio_paths) + (len(video_paths) * len(audio_paths))
+    total_steps = len(video_files) * len(audio_files)
     step = 0
 
     def _progress(msg: str):
@@ -156,61 +197,65 @@ def match_files(
         if progress_callback:
             progress_callback(step, total_steps, msg)
 
-    # Pre-load all audio
-    video_audios = {}
-    for vp in video_paths:
-        _progress(f"Extracting audio from {vp.name}")
-        try:
-            video_audios[vp] = extract_audio_from_video(vp)
-        except subprocess.CalledProcessError as e:
-            _progress(f"  WARNING: Could not extract audio from {vp.name}: {e}")
-            continue
+    # Filter to files that have timecode
+    tc_videos = [v for v in video_files if v.timecode is not None]
+    tc_audios = [a for a in audio_files if a.timecode is not None]
 
-    ext_audios = {}
-    for ap in audio_paths:
-        _progress(f"Loading {ap.name}")
-        try:
-            ext_audios[ap] = load_audio_file(ap)
-        except subprocess.CalledProcessError as e:
-            _progress(f"  WARNING: Could not load {ap.name}: {e}")
-            continue
+    if not tc_videos:
+        raise ValueError(
+            "No video files have embedded timecode. "
+            "Ensure your camera is recording timecode to the file metadata."
+        )
+    if not tc_audios:
+        raise ValueError(
+            "No audio files have embedded timecode. "
+            "Ensure your audio recorder is writing timecode (BWF/WAV with TC)."
+        )
 
-    # Cross-correlate every video against every audio to find best pairs
-    # Store: { video_path: (best_audio_path, offset, score) }
-    best_matches: dict[Path, tuple[Path, float, float]] = {}
+    matches = []
+    used_audio = set()  # track which audio files are already matched
 
-    for vp, v_audio in video_audios.items():
-        best_score = -1.0
-        best_ap = None
-        best_offset = 0.0
+    for v in tc_videos:
+        v_start = v.timecode.to_seconds()
+        v_end = v_start + v.duration
 
-        for ap, a_audio in ext_audios.items():
-            _progress(f"Comparing {vp.name} <-> {ap.name}")
-            offset, score = find_sync_offset(v_audio, a_audio)
+        best_audio = None
+        best_overlap = -1.0
 
-            if score > best_score:
-                best_score = score
-                best_ap = ap
-                best_offset = offset
+        for a in tc_audios:
+            _progress(f"Comparing {v.path.name} <-> {a.path.name}")
 
-        if best_ap is not None and best_score >= MIN_CORRELATION_THRESHOLD:
-            best_matches[vp] = (best_ap, best_offset, best_score)
+            if id(a) in used_audio:
+                continue
 
-    # Build results
-    results = []
-    for vp, (ap, offset, score) in best_matches.items():
-        v_dur = get_media_duration(vp)
-        a_dur = get_media_duration(ap)
-        results.append(SyncMatch(
-            video_path=vp,
-            audio_path=ap,
-            offset_seconds=offset,
-            correlation_score=score,
-            video_duration=v_dur,
-            audio_duration=a_dur,
-        ))
+            a_start = a.timecode.to_seconds()
+            a_end = a_start + a.duration
 
-    # Sort by video filename for consistent output
-    results.sort(key=lambda m: m.video_path.name)
+            # Check for overlap (with tolerance)
+            overlap_start = max(v_start, a_start)
+            overlap_end = min(v_end, a_end)
+            overlap = overlap_end - overlap_start
 
-    return results
+            if overlap >= -tolerance_seconds:
+                # They overlap (or are within tolerance)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_audio = a
+
+        if best_audio is not None:
+            # Offset = how much the audio TC is ahead of the video TC
+            # Positive: audio started before video (audio leads)
+            # Negative: audio started after video (audio trails)
+            offset = v.timecode.to_seconds() - best_audio.timecode.to_seconds()
+
+            matches.append(SyncMatch(
+                video=v,
+                audio=best_audio,
+                offset_seconds=offset,
+            ))
+            used_audio.add(id(best_audio))
+
+    # Sort by video filename
+    matches.sort(key=lambda m: m.video.path.name)
+
+    return matches
