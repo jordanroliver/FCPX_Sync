@@ -26,4 +26,5 @@ dev = [
 ]
 build = [
     "pyinstaller>=6.0",
+    "Pillow>=9.0",
 ]
