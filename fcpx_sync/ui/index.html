@@ -247,11 +247,11 @@ body {
 }
 
 .folder-card.selected {
-  cursor: default;
+  cursor: pointer;
 }
 
 .folder-card.selected:hover {
-  filter: none;
+  filter: brightness(1.1);
 }
 
 .folder-tab {
@@ -379,6 +379,7 @@ body {
   z-index: 11;
   pointer-events: none;
   transition: color 0.3s ease;
+  transform: perspective(200px) rotateX(25deg);
 }
 
 .sync-hitarea {
@@ -553,6 +554,22 @@ body {
 
 .output-log .arrow.open {
   transform: rotate(90deg);
+}
+
+.error-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #FF5F56;
+  margin-left: auto;
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.error-dot.visible {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .output-log-content {
@@ -804,6 +821,7 @@ body {
       <div class="output-log" onclick="toggleLog()">
         <span>OUTPUT LOG</span>
         <span class="arrow" id="logArrow">&#9658;</span>
+        <span class="error-dot" id="errorDot"></span>
       </div>
       <div class="output-log-content" id="logContent"></div>
     </div>
@@ -863,6 +881,9 @@ function toggleLog() {
   state.logOpen = !state.logOpen;
   document.getElementById('logArrow').classList.toggle('open', state.logOpen);
   document.getElementById('logContent').classList.toggle('open', state.logOpen);
+  if (state.logOpen) {
+    document.getElementById('errorDot').classList.remove('visible');
+  }
 }
 
 function addLogEntry(text, type = '') {
@@ -872,10 +893,14 @@ function addLogEntry(text, type = '') {
   entry.textContent = `[${timestamp()}]  ${text}`;
   content.appendChild(entry);
   content.scrollTop = content.scrollHeight;
+  if (type === 'error' && !state.logOpen) {
+    document.getElementById('errorDot').classList.add('visible');
+  }
 }
 
 function clearLog() {
   document.getElementById('logContent').innerHTML = '';
+  document.getElementById('errorDot').classList.remove('visible');
 }
 
 /* ============================================
@@ -883,7 +908,6 @@ function clearLog() {
    ============================================ */
 async function selectFolder(type) {
   if (state.current !== 'default') return;
-  if (state[type + 'Selected']) return;
 
   // Call Python backend to open native folder dialog
   let path;
