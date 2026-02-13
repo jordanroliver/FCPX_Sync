@@ -1,19 +1,20 @@
 #!/bin/bash
-# Build FCPX Sync as a standalone macOS .app bundle using PyInstaller.
+# Build Sync Hole as a standalone macOS .app bundle using PyInstaller.
 #
 # Prerequisites:
 #   pip install ".[build]"
-#   brew install ffmpeg   (ffmpeg must be on PATH)
+#   pip install ".[audio]"   (optional — enables audio sync mode)
+#   brew install ffmpeg      (ffmpeg/ffprobe must be on PATH)
 #
 # Usage:
 #   ./build_mac.sh
 #
 # Output:
-#   dist/FCPX Sync.app
+#   dist/Sync Hole.app
 
 set -e
 
-echo "Building FCPX Sync.app ..."
+echo "Building Sync Hole.app ..."
 
 # --- Generate app icon ---
 echo "Generating icon..."
@@ -38,30 +39,33 @@ echo "Icon ready: icon.icns"
 # --- Find ffprobe to bundle ---
 FFPROBE_PATH=$(which ffprobe 2>/dev/null || true)
 
-EXTRA_DATA=""
+EXTRA_BINS=""
 if [ -n "$FFPROBE_PATH" ]; then
     echo "Bundling ffprobe from: $FFPROBE_PATH"
-    EXTRA_DATA="--add-binary ${FFPROBE_PATH}:."
+    EXTRA_BINS="--add-binary ${FFPROBE_PATH}:."
 fi
 
 # --- Build ---
 pyinstaller \
-    --name "FCPX Sync" \
+    --name "Sync Hole" \
     --windowed \
     --onedir \
     --noconfirm \
     --clean \
     --icon icon.icns \
-    $EXTRA_DATA \
+    $EXTRA_BINS \
+    --add-data "fcpx_sync/ui:ui" \
     --hidden-import fcpx_sync \
     --hidden-import fcpx_sync.cli \
     --hidden-import fcpx_sync.sync_engine \
     --hidden-import fcpx_sync.fcpxml \
-    --hidden-import fcpx_sync.app \
-    fcpx_sync/app.py
+    --hidden-import fcpx_sync.audio_sync \
+    --hidden-import fcpx_sync.webview_app \
+    --hidden-import webview \
+    fcpx_sync/webview_app.py
 
 rm -f icon.icns
 
 echo ""
-echo "Done! App bundle at: dist/FCPX Sync.app"
+echo "Done! App bundle at: dist/Sync Hole.app"
 echo "You can move it to /Applications or double-click to run."

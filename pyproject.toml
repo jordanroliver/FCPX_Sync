@@ -3,24 +3,28 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fcpx-sync"
-version = "0.2.0"
-description = "Batch audio/video sync tool for Final Cut Pro X using timecode"
+name = "sync-hole"
+version = "1.0.0"
+description = "Batch audio/video sync tool for Final Cut Pro X using timecode or audio fingerprinting"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = []
-# No Python dependencies! Only requires ffmpeg on PATH.
-dependencies = []
+dependencies = [
+    "pywebview>=5.0",
+]
 
 [project.scripts]
 fcpx-sync = "fcpx_sync.cli:main"
-fcpx-sync-gui = "fcpx_sync.gui:main"
-fcpx-sync-app = "fcpx_sync.app:main"
+fcpx-sync-gui = "fcpx_sync.webview_app:main"
 
 [project.optional-dependencies]
+audio = [
+    "numpy>=1.24",
+]
 dev = [
     "pytest>=7.0",
+    "numpy>=1.24",
 ]
 build = [
     "pyinstaller>=6.0",

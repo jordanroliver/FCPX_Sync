@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .sync_engine import probe_media, match_by_timecode
+from .sync_engine import probe_media, match_by_timecode, Timecode
 from .fcpxml import generate_fcpxml
 
 # Supported file extensions
@@ -39,6 +39,7 @@ def run_sync(
     event_name: str = "Synced Clips",
     quiet: bool = False,
     on_progress=None,
+    mode: str = "timecode",
 ) -> Path:
     """Core sync logic shared by CLI and GUI.
 
@@ -117,15 +118,38 @@ def run_sync(
             print(f"         TC: {tc_str}  dur: {media.duration:.1f}s", file=sys.stderr)
         audio_media.append(media)
 
-    # Match by timecode
-    _emit("Matching by timecode...", total_files, total_files)
-    if not quiet:
-        print(f"\n  Matching by timecode...\n", file=sys.stderr)
-
-    matches = match_by_timecode(video_media, audio_media, progress_callback=callback)
+    # Match by selected mode
+    if mode == "timecode":
+        _emit("Matching by timecode...", total_files, total_files)
+        if not quiet:
+            print(f"\n  Matching by timecode...\n", file=sys.stderr)
+        matches = match_by_timecode(video_media, audio_media, progress_callback=callback)
+    elif mode == "audio":
+        _emit("Matching by audio waveform...", total_files, total_files)
+        if not quiet:
+            print(f"\n  Matching by audio cross-correlation...\n", file=sys.stderr)
+        try:
+            from .audio_sync import match_by_audio
+        except ImportError:
+            raise RuntimeError(
+                "Audio sync requires numpy. Install with: pip install sync-hole[audio]"
+            )
+        matches = match_by_audio(video_media, audio_media, progress_callback=callback)
+        # Synthesise placeholder timecodes so generate_fcpxml() works unchanged.
+        # Use 01:00:00:00 as the conventional base timecode for all clips.
+        for m in matches:
+            fps = m.video.fps_num / m.video.fps_den if m.video.fps_den else 24.0
+            base_tc_seconds = 3600.0  # 01:00:00:00
+            if m.video.timecode is None:
+                m.video.timecode = Timecode.from_seconds(base_tc_seconds, fps=fps)
+            if m.audio.timecode is None:
+                audio_tc_seconds = base_tc_seconds - m.offset_seconds
+                m.audio.timecode = Timecode.from_seconds(audio_tc_seconds, fps=fps)
+    else:
+        raise ValueError(f"Unknown sync mode: {mode!r}. Use 'timecode' or 'audio'.")
 
     if not matches:
-        raise RuntimeError("No timecode matches found between video and audio files.")
+        raise RuntimeError(f"No matches found using {mode} mode.")
 
     _emit(f"Matched {len(matches)} pair(s)", total_files, total_files)
 
@@ -200,6 +224,12 @@ def main():
         action="store_true",
         help="Suppress progress output.",
     )
+    parser.add_argument(
+        "--mode",
+        choices=["timecode", "audio"],
+        default="timecode",
+        help='Sync method: "timecode" (match by embedded TC) or "audio" (match by waveform).',
+    )
 
     args = parser.parse_args()
 
@@ -220,6 +250,7 @@ def main():
             output_path=args.output,
             event_name=args.event_name,
             quiet=args.quiet,
+            mode=args.mode,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"\nError: {e}", file=sys.stderr)

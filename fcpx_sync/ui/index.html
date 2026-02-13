@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sync Hole</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================
+   VARIABLES & RESET
+   ============================================ */
+:root {
+  --bg: #0C0C0C;
+  --surface: #1A1A1A;
+  --border: #333333;
+  --red: #FF0000;
+  --red-dim: #550000;
+  --white: #FFFFFF;
+  --dimmed: #666666;
+  --folder: #666666;
+  --fold: #444444;
+}
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  margin: 0;
+  font-family: 'Inter', -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ============================================
+   APP FRAME — fills pywebview window
+   ============================================ */
+.app-frame {
+  width: 100%;
+  height: 100vh;
+  background: var(--bg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ============================================
+   TITLE BAR (draggable on macOS)
+   ============================================ */
+.title-bar {
+  height: 36px;
+  min-height: 36px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  -webkit-app-region: drag;
+}
+
+.window-dots {
+  display: flex;
+  gap: 8px;
+  width: 60px;
+  -webkit-app-region: no-drag;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.dot:hover { filter: brightness(1.3); }
+.dot.close { background: #FF5F56; }
+.dot.minimize { background: #FFBD2E; }
+.dot.maximize { background: #27C93F; }
+
+.title-text {
+  flex: 1;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--white);
+  text-transform: uppercase;
+}
+
+.title-spacer {
+  width: 60px;
+}
+
+/* ============================================
+   CONTENT AREA — single stacking context
+   ============================================ */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 40px 0 40px;
+  gap: 24px;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* ============================================
+   HEADER + SPLIT-OVAL LOGO
+   ============================================ */
+.header {
+  width: 100%;
+  height: 80px;
+  position: relative;
+}
+
+.logo {
+  position: relative;
+  width: 126px;
+  height: 72px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.logo-text {
+  position: absolute;
+  width: 126px;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 36px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  color: var(--white);
+  line-height: 1;
+}
+
+.logo-sync { top: 0; z-index: 3; }
+.logo-hole { top: 28px; z-index: 1; }
+
+.logo-oval-back,
+.logo-oval-front {
+  position: absolute;
+  width: 126px;
+  left: 0;
+  overflow: hidden;
+}
+
+.logo-oval-back {
+  top: 18px;
+  height: 12px;
+  z-index: 2;
+}
+
+.logo-oval-front {
+  top: 27px;
+  height: 12px;
+  z-index: 4;
+}
+
+.logo-oval-back .oval,
+.logo-oval-front .oval {
+  width: 126px;
+  height: 20px;
+  background: var(--red);
+  border-radius: 50%;
+  position: absolute;
+  left: 0;
+}
+
+.logo-oval-back .oval { top: 0; }
+.logo-oval-front .oval { top: -8px; }
+
+.version {
+  position: absolute;
+  left: 132px;
+  top: 50px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--red);
+}
+
+/* ============================================
+   MODE TOGGLE
+   ============================================ */
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 36px;
+  width: 100%;
+}
+
+.toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.toggle-label.dimmed { color: var(--border); }
+.toggle-label.active { color: var(--white); }
+
+.toggle-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+/* ============================================
+   FOLDER ROW
+   ============================================ */
+.folder-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 74px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  padding: 10px 0;
+  position: relative;
+}
+
+.folder-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 120px;
+  cursor: pointer;
+  position: relative;
+}
+
+.folder-card:hover {
+  filter: brightness(1.1);
+}
+
+.folder-card:active {
+  filter: brightness(0.9);
+}
+
+.folder-card.selected {
+  cursor: default;
+}
+
+.folder-card.selected:hover {
+  filter: none;
+}
+
+.folder-tab {
+  width: 40px;
+  height: 10px;
+  background: var(--folder);
+  border-radius: 2px 2px 0 0;
+}
+
+.folder-body {
+  width: 120px;
+  height: 85px;
+  background: var(--folder);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--white);
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.folder-card.selected .folder-body {
+  font-size: 9px;
+  letter-spacing: 1px;
+  word-break: break-all;
+  padding: 8px;
+  line-height: 1.4;
+}
+
+.folder-card.selected .folder-tab {
+  background: var(--fold);
+}
+
+.folder-card.selected .folder-body {
+  background: var(--fold);
+}
+
+/* New Batch button */
+.new-batch-btn {
+  position: absolute;
+  padding: 10px 28px;
+  background: var(--border);
+  color: var(--white);
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: filter 0.2s ease;
+}
+
+.new-batch-btn:hover {
+  filter: brightness(1.3);
+}
+
+.new-batch-btn.visible {
+  opacity: 1;
+  pointer-events: auto;
+  animation: fadeSlideIn 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ============================================
+   SYNC AREA (THE HOLE)
+   No stacking context here! Ovals are direct
+   children so their z-index participates in
+   .content's stacking context.
+   ============================================ */
+.sync-area {
+  position: relative;
+  width: 100%;
+  height: 136px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sync-oval-back {
+  position: absolute;
+  width: 440px;
+  height: 60px;
+  left: calc(50% - 220px);
+  top: calc(50% - 30px);
+  background: var(--red);
+  border-radius: 50%;
+  clip-path: inset(0 0 50% 0);
+  z-index: 1;
+  transition: background 0.3s ease;
+}
+
+.sync-oval-front {
+  position: absolute;
+  width: 440px;
+  height: 60px;
+  left: calc(50% - 220px);
+  top: calc(50% - 30px);
+  background: var(--red);
+  border-radius: 50%;
+  clip-path: inset(50% 0 0 0);
+  z-index: 10;
+  transition: background 0.3s ease;
+}
+
+.sync-label {
+  position: absolute;
+  width: 440px;
+  height: 60px;
+  left: calc(50% - 220px);
+  top: calc(50% - 30px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  color: var(--white);
+  text-transform: uppercase;
+  z-index: 11;
+  pointer-events: none;
+  transition: color 0.3s ease;
+}
+
+.sync-hitarea {
+  position: absolute;
+  width: 440px;
+  height: 60px;
+  left: calc(50% - 220px);
+  top: calc(50% - 30px);
+  border-radius: 50%;
+  z-index: 12;
+  cursor: pointer;
+}
+
+.sync-area.disabled .sync-oval-back,
+.sync-area.disabled .sync-oval-front {
+  background: var(--red-dim);
+}
+
+.sync-area.disabled .sync-label {
+  color: #888;
+}
+
+.sync-area.disabled .sync-hitarea {
+  cursor: default;
+  pointer-events: none;
+}
+
+.sync-hitarea:hover ~ .sync-oval-back,
+.sync-hitarea:hover ~ .sync-oval-front {
+  filter: brightness(1.15);
+}
+
+.sync-area.ready .sync-oval-back,
+.sync-area.ready .sync-oval-front {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.3); }
+}
+
+/* ============================================
+   XML AREA
+   ============================================ */
+.xml-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+.document-icon {
+  position: relative;
+  width: 80px;
+  height: 100px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: filter 0.15s ease;
+}
+
+.document-icon:hover {
+  filter: brightness(1.2);
+}
+
+.document-icon.visible {
+  pointer-events: auto;
+  animation: bounceOut 800ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: 200ms;
+}
+
+.doc-body {
+  width: 80px;
+  height: 100px;
+  background: var(--folder);
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.doc-corner-cut {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 18px 18px 0;
+  border-color: transparent var(--bg) transparent transparent;
+  z-index: 2;
+}
+
+.doc-fold {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 18px 0 0 18px;
+  border-color: transparent transparent transparent var(--fold);
+  z-index: 1;
+}
+
+.doc-label {
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  width: 80px;
+  text-align: center;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--white);
+  letter-spacing: 1px;
+  z-index: 3;
+}
+
+/* ============================================
+   HINT TEXT
+   ============================================ */
+.hint-text {
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--dimmed);
+  text-transform: uppercase;
+  text-align: center;
+  min-height: 16px;
+}
+
+/* ============================================
+   OUTPUT LOG BAR + COLLAPSIBLE CONTENT
+   ============================================ */
+.output-log-container {
+  width: calc(100% + 80px);
+  margin: 0 -40px;
+  margin-bottom: 9px;
+  flex-shrink: 0;
+}
+
+.output-log {
+  height: 32px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--dimmed);
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.output-log:hover {
+  background: #222;
+}
+
+.output-log .arrow {
+  font-weight: normal;
+  font-size: 10px;
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.output-log .arrow.open {
+  transform: rotate(90deg);
+}
+
+.output-log-content {
+  max-height: 0;
+  overflow-y: auto;
+  background: #111;
+  transition: max-height 0.35s ease;
+}
+
+.output-log-content.open {
+  max-height: 56px;
+}
+
+.log-entry {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  color: #555;
+  padding: 3px 12px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.log-entry.success {
+  color: #27C93F;
+}
+
+.log-entry.info {
+  color: #888;
+}
+
+.log-entry.error {
+  color: #FF5F56;
+}
+
+.output-log-content::-webkit-scrollbar {
+  width: 4px;
+}
+.output-log-content::-webkit-scrollbar-track {
+  background: #111;
+}
+.output-log-content::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+/* ============================================
+   FLYING FOLDER CLONES (for fall animation)
+   ============================================ */
+.folder-clone {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.folder-clone .folder-tab {
+  width: 40px;
+  height: 10px;
+  background: var(--fold);
+  border-radius: 2px 2px 0 0;
+}
+
+.folder-clone .folder-body {
+  width: 120px;
+  height: 85px;
+  background: var(--fold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--white);
+  line-height: 1.4;
+  word-break: break-all;
+  padding: 8px;
+}
+
+/* ============================================
+   SAVE TOAST
+   ============================================ */
+.save-toast {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  background: var(--border);
+  color: var(--white);
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 12px 24px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 600;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+
+.save-toast.show {
+  animation: toastPop 1400ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ============================================
+   KEYFRAME ANIMATIONS
+   ============================================ */
+
+@keyframes bounceOut {
+  0% {
+    transform: translateY(-80px) scale(0.2);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(8px) scaleX(1.06) scaleY(0.92);
+  }
+  68% {
+    transform: translateY(-6px) scaleX(0.97) scaleY(1.04);
+  }
+  82% {
+    transform: translateY(3px) scaleX(1.01) scaleY(0.98);
+  }
+  92% {
+    transform: translateY(-1px) scale(1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeSlideIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-15px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toastPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+  30% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95) translateY(-10px);
+  }
+}
+
+@keyframes selectPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+</style>
+</head>
+<body>
+
+<div class="app-frame">
+  <!-- Title Bar -->
+  <div class="title-bar">
+    <div class="window-dots">
+      <div class="dot close" id="dotClose"></div>
+      <div class="dot minimize" id="dotMinimize"></div>
+      <div class="dot maximize" id="dotMaximize"></div>
+    </div>
+    <div class="title-text">SYNC HOLE</div>
+    <div class="title-spacer"></div>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="content">
+    <!-- Header with Split-Oval Logo -->
+    <div class="header">
+      <div class="logo">
+        <div class="logo-text logo-hole">HOLE</div>
+        <div class="logo-oval-back"><div class="oval"></div></div>
+        <div class="logo-text logo-sync">SYNC</div>
+        <div class="logo-oval-front"><div class="oval"></div></div>
+      </div>
+      <div class="version">V1.0</div>
+    </div>
+
+    <!-- Mode Toggle -->
+    <div class="mode-toggle">
+      <span class="toggle-label dimmed" data-mode="audio">AUDIO</span>
+      <div class="toggle-divider"></div>
+      <span class="toggle-label active" data-mode="timecode">TIMECODE</span>
+    </div>
+
+    <!-- Folder Row -->
+    <div class="folder-row" id="folderRow">
+      <div class="folder-card" id="audioCard" onclick="selectFolder('audio')">
+        <div class="folder-tab"></div>
+        <div class="folder-body">SELECT<br>AUDIO</div>
+      </div>
+      <div class="folder-card" id="videoCard" onclick="selectFolder('video')">
+        <div class="folder-tab"></div>
+        <div class="folder-body">SELECT<br>VIDEO</div>
+      </div>
+      <div class="new-batch-btn" id="newBatchBtn" onclick="newBatch()">NEW BATCH</div>
+    </div>
+
+    <!-- Sync Area (THE HOLE) -->
+    <div class="sync-area disabled" id="syncArea">
+      <div class="sync-oval-back"></div>
+      <div class="sync-oval-front"></div>
+      <div class="sync-label" id="syncLabel">SYNC</div>
+      <div class="sync-hitarea" id="syncHitarea" onclick="startSync()"></div>
+    </div>
+
+    <!-- XML Area -->
+    <div class="xml-area" id="xmlArea">
+      <div class="document-icon" id="docIcon" onclick="saveFile()">
+        <div class="doc-body"></div>
+        <div class="doc-corner-cut"></div>
+        <div class="doc-fold"></div>
+        <div class="doc-label">.FCPXML</div>
+      </div>
+    </div>
+
+    <!-- Hint Text -->
+    <div class="hint-text" id="hintText">SELECT METHOD. SELECT FOLDERS. THEN SYNC.</div>
+
+    <!-- Output Log -->
+    <div class="output-log-container">
+      <div class="output-log" onclick="toggleLog()">
+        <span>OUTPUT LOG</span>
+        <span class="arrow" id="logArrow">&#9658;</span>
+      </div>
+      <div class="output-log-content" id="logContent"></div>
+    </div>
+
+    <!-- Save toast -->
+    <div class="save-toast" id="saveToast">SAVED</div>
+  </div>
+</div>
+
+<script>
+/* ============================================
+   STATE
+   ============================================ */
+const state = {
+  current: 'default',
+  audioSelected: false,
+  videoSelected: false,
+  logOpen: false,
+  outputPath: null,
+};
+
+/* ============================================
+   HELPERS
+   ============================================ */
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function animateEl(el, keyframes, options) {
+  return new Promise(resolve => {
+    const anim = el.animate(keyframes, options);
+    anim.onfinish = resolve;
+  });
+}
+
+function crossfadeText(el, newText, duration = 300) {
+  return new Promise(async resolve => {
+    await animateEl(el, [{ opacity: 1 }, { opacity: 0 }], {
+      duration: duration / 2, fill: 'forwards'
+    });
+    el.textContent = newText;
+    await animateEl(el, [{ opacity: 0 }, { opacity: 1 }], {
+      duration: duration / 2, fill: 'forwards'
+    });
+    resolve();
+  });
+}
+
+function timestamp() {
+  return new Date().toLocaleTimeString('en-US', { hour12: false });
+}
+
+/* ============================================
+   OUTPUT LOG
+   ============================================ */
+function toggleLog() {
+  state.logOpen = !state.logOpen;
+  document.getElementById('logArrow').classList.toggle('open', state.logOpen);
+  document.getElementById('logContent').classList.toggle('open', state.logOpen);
+}
+
+function addLogEntry(text, type = '') {
+  const content = document.getElementById('logContent');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry' + (type ? ' ' + type : '');
+  entry.textContent = `[${timestamp()}]  ${text}`;
+  content.appendChild(entry);
+  content.scrollTop = content.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('logContent').innerHTML = '';
+}
+
+/* ============================================
+   FOLDER SELECTION — calls Python via pywebview
+   ============================================ */
+async function selectFolder(type) {
+  if (state.current !== 'default') return;
+  if (state[type + 'Selected']) return;
+
+  // Call Python backend to open native folder dialog
+  let path;
+  try {
+    path = await pywebview.api.select_folder(type);
+  } catch (e) {
+    return;
+  }
+  if (!path) return;  // user cancelled
+
+  const card = document.getElementById(type + 'Card');
+  const body = card.querySelector('.folder-body');
+
+  state[type + 'Selected'] = true;
+  card.classList.add('selected');
+  card.style.animation = 'selectPulse 300ms ease';
+  setTimeout(() => card.style.animation = '', 300);
+
+  body.textContent = path;
+  addLogEntry(`${type.toUpperCase()} FOLDER: ${path}`, 'info');
+  checkReady();
+}
+
+function checkReady() {
+  const area = document.getElementById('syncArea');
+  if (state.audioSelected && state.videoSelected) {
+    area.classList.remove('disabled');
+    area.classList.add('ready');
+    addLogEntry('READY TO SYNC', 'info');
+  }
+}
+
+/* ============================================
+   SYNC — MAIN SEQUENCE
+   ============================================ */
+async function startSync() {
+  if (state.current !== 'default') return;
+  if (!state.audioSelected || !state.videoSelected) return;
+
+  state.current = 'syncing';
+  const area = document.getElementById('syncArea');
+  area.classList.remove('ready');
+  area.querySelector('.sync-hitarea').style.pointerEvents = 'none';
+
+  addLogEntry('SYNC INITIATED', 'info');
+
+  await animateFoldersFall();
+  area.classList.add('disabled');
+  await crossfadeText(document.getElementById('syncLabel'), 'SYNCING');
+  await crossfadeText(document.getElementById('hintText'), 'PROCESSING...');
+
+  // Trigger Python backend sync — progress comes back via onProgress()
+  try {
+    pywebview.api.start_sync();
+  } catch (e) {
+    onSyncError('Failed to start sync: ' + e);
+  }
+}
+
+/* ============================================
+   PYTHON → JS CALLBACKS
+   Called from Python via window.evaluate_js()
+   ============================================ */
+function onProgress(message, step, total) {
+  addLogEntry(message);
+  if (total > 0) {
+    const pct = Math.round((step / total) * 100);
+    document.getElementById('hintText').textContent =
+      `PROCESSING... ${pct}%`;
+  }
+}
+
+function onSyncComplete(outputPath) {
+  state.outputPath = outputPath;
+  state.current = 'complete';
+  animateComplete();
+}
+
+function onSyncError(errorMsg) {
+  state.current = 'default';
+  addLogEntry('ERROR: ' + errorMsg, 'error');
+  resetSyncArea();
+}
+
+function resetSyncArea() {
+  const area = document.getElementById('syncArea');
+  area.classList.add('disabled');
+  area.classList.remove('ready');
+  area.querySelector('.sync-hitarea').style.pointerEvents = '';
+
+  const audioCard = document.getElementById('audioCard');
+  const videoCard = document.getElementById('videoCard');
+  audioCard.style.visibility = 'visible';
+  videoCard.style.visibility = 'visible';
+
+  crossfadeText(document.getElementById('syncLabel'), 'SYNC');
+  crossfadeText(document.getElementById('hintText'), 'SELECT METHOD. SELECT FOLDERS. THEN SYNC.');
+}
+
+/* ============================================
+   FOLDER FALL ANIMATION
+   ============================================ */
+async function animateFoldersFall() {
+  const content = document.getElementById('content');
+  const audioCard = document.getElementById('audioCard');
+  const videoCard = document.getElementById('videoCard');
+  const syncArea = document.getElementById('syncArea');
+
+  const contentRect = content.getBoundingClientRect();
+  const audioRect = audioCard.getBoundingClientRect();
+  const videoRect = videoCard.getBoundingClientRect();
+  const syncRect = syncArea.getBoundingClientRect();
+
+  const ovalLeft = syncRect.left - contentRect.left + (syncRect.width - 440) / 2;
+  const ovalTop = syncRect.top - contentRect.top + (syncRect.height - 60) / 2;
+  const syncCenterY = ovalTop + 30;
+
+  // Hide original ovals — replace with temp overlays for correct z stacking
+  const origOvals = syncArea.querySelectorAll('.sync-oval-back, .sync-oval-front');
+  origOvals.forEach(o => o.style.visibility = 'hidden');
+
+  function createTempOval(clipPath, zIdx) {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position: absolute;
+      width: 440px; height: 60px;
+      left: ${ovalLeft}px; top: ${ovalTop}px;
+      background: #FF0000;
+      border-radius: 50%;
+      clip-path: ${clipPath};
+      z-index: ${zIdx};
+      pointer-events: none;
+    `;
+    content.appendChild(el);
+    return el;
+  }
+
+  const tempBack = createTempOval('inset(0 0 50% 0)', 1);
+  const tempFront = createTempOval('inset(50% 0 0 0)', 10);
+
+  // Floor cover: hides clones below oval center
+  const tempFloor = document.createElement('div');
+  tempFloor.style.cssText = `
+    position: absolute;
+    width: 100%;
+    top: ${syncCenterY}px;
+    bottom: 0;
+    background: #0C0C0C;
+    z-index: 6;
+    pointer-events: none;
+  `;
+  content.appendChild(tempFloor);
+
+  // Create folder clones (z:5)
+  function createClone(card, rect) {
+    const clone = document.createElement('div');
+    clone.className = 'folder-clone';
+    clone.innerHTML = `
+      <div class="folder-tab"></div>
+      <div class="folder-body">${card.querySelector('.folder-body').textContent}</div>
+    `;
+    clone.style.left = (rect.left - contentRect.left) + 'px';
+    clone.style.top = (rect.top - contentRect.top) + 'px';
+    clone.style.width = rect.width + 'px';
+    content.appendChild(clone);
+    return clone;
+  }
+
+  const audioClone = createClone(audioCard, audioRect);
+  const videoClone = createClone(videoCard, videoRect);
+
+  audioCard.style.visibility = 'hidden';
+  videoCard.style.visibility = 'hidden';
+
+  const audioStartY = audioRect.top - contentRect.top;
+  const videoStartY = videoRect.top - contentRect.top;
+  const audioFall = syncCenterY - audioStartY + 20;
+  const videoFall = syncCenterY - videoStartY + 20;
+
+  const cx = content.offsetWidth / 2;
+  const audioDX = cx - (audioRect.left - contentRect.left + audioRect.width / 2);
+  const videoDX = cx - (videoRect.left - contentRect.left + videoRect.width / 2);
+
+  const audioAnim = animateEl(audioClone, [
+    { transform: 'translate(0, 0) scale(1, 1)', offset: 0 },
+    { transform: 'translate(0, -14px) scale(1.03, 0.95)', offset: 0.08 },
+    { transform: `translate(${audioDX * 0.3}px, ${audioFall * 0.35}px) scale(0.85, 1.06)`, offset: 0.35 },
+    { transform: `translate(${audioDX * 0.65}px, ${audioFall * 0.65}px) scale(0.6, 0.7)`, offset: 0.6 },
+    { transform: `translate(${audioDX * 0.85}px, ${audioFall * 0.85}px) scale(0.35, 0.4)`, offset: 0.8 },
+    { transform: `translate(${audioDX}px, ${audioFall}px) scale(0.05)`, offset: 1 },
+  ], {
+    duration: 850,
+    easing: 'cubic-bezier(0.4, 0, 0.9, 0.4)',
+    fill: 'forwards',
+  });
+
+  await sleep(130);
+
+  const videoAnim = animateEl(videoClone, [
+    { transform: 'translate(0, 0) scale(1, 1)', offset: 0 },
+    { transform: 'translate(0, -14px) scale(1.03, 0.95)', offset: 0.08 },
+    { transform: `translate(${videoDX * 0.3}px, ${videoFall * 0.35}px) scale(0.85, 1.06)`, offset: 0.35 },
+    { transform: `translate(${videoDX * 0.65}px, ${videoFall * 0.65}px) scale(0.6, 0.7)`, offset: 0.6 },
+    { transform: `translate(${videoDX * 0.85}px, ${videoFall * 0.85}px) scale(0.35, 0.4)`, offset: 0.8 },
+    { transform: `translate(${videoDX}px, ${videoFall}px) scale(0.05)`, offset: 1 },
+  ], {
+    duration: 850,
+    easing: 'cubic-bezier(0.4, 0, 0.9, 0.4)',
+    fill: 'forwards',
+  });
+
+  await Promise.all([audioAnim, videoAnim]);
+
+  audioClone.remove();
+  videoClone.remove();
+  tempBack.remove();
+  tempFront.remove();
+  tempFloor.remove();
+  origOvals.forEach(o => o.style.visibility = '');
+}
+
+/* ============================================
+   COMPLETE STATE
+   ============================================ */
+async function animateComplete() {
+  await crossfadeText(document.getElementById('syncLabel'), 'SYNCED');
+
+  const docIcon = document.getElementById('docIcon');
+  docIcon.classList.add('visible');
+
+  const newBatch = document.getElementById('newBatchBtn');
+  newBatch.classList.add('visible');
+
+  addLogEntry('FCPXML GENERATED — READY TO SAVE', 'success');
+  await crossfadeText(document.getElementById('hintText'), 'CLICK ICON TO SAVE');
+
+  const area = document.getElementById('syncArea');
+  area.classList.remove('disabled');
+  area.querySelector('.sync-hitarea').style.pointerEvents = 'none';
+}
+
+/* ============================================
+   SAVE FILE — native dialog via pywebview
+   ============================================ */
+async function saveFile() {
+  if (state.current !== 'complete') return;
+  let savedPath;
+  try {
+    savedPath = await pywebview.api.save_file();
+  } catch (e) {
+    addLogEntry('SAVE FAILED: ' + e, 'error');
+    return;
+  }
+  if (savedPath) {
+    addLogEntry(`SAVED TO ${savedPath}`, 'success');
+    showToast('SAVED');
+  }
+}
+
+function showToast(text) {
+  const toast = document.getElementById('saveToast');
+  toast.textContent = text;
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+}
+
+/* ============================================
+   NEW BATCH — RESET
+   ============================================ */
+async function newBatch() {
+  if (state.current !== 'complete') return;
+  state.current = 'resetting';
+
+  const docIcon = document.getElementById('docIcon');
+  const newBatchBtn = document.getElementById('newBatchBtn');
+  const audioCard = document.getElementById('audioCard');
+  const videoCard = document.getElementById('videoCard');
+  const syncArea = document.getElementById('syncArea');
+
+  await animateEl(docIcon, [
+    { transform: 'translateY(0) scale(1)', opacity: 1 },
+    { transform: 'translateY(50px) scale(0.7)', opacity: 0 },
+  ], { duration: 400, easing: 'cubic-bezier(0.55, 0, 1, 0.45)', fill: 'forwards' });
+
+  docIcon.classList.remove('visible');
+  docIcon.style.opacity = '0';
+  docIcon.style.transform = '';
+
+  await animateEl(newBatchBtn, [
+    { opacity: 1, transform: 'translateY(0)' },
+    { opacity: 0, transform: 'translateY(10px)' },
+  ], { duration: 300, easing: 'ease-in', fill: 'forwards' });
+
+  newBatchBtn.classList.remove('visible');
+  newBatchBtn.style.opacity = '';
+  newBatchBtn.style.transform = '';
+
+  await crossfadeText(document.getElementById('syncLabel'), 'SYNC');
+
+  state.audioSelected = false;
+  state.videoSelected = false;
+  state.outputPath = null;
+  audioCard.classList.remove('selected');
+  videoCard.classList.remove('selected');
+  audioCard.querySelector('.folder-body').innerHTML = 'SELECT<br>AUDIO';
+  videoCard.querySelector('.folder-body').innerHTML = 'SELECT<br>VIDEO';
+
+  audioCard.style.visibility = 'visible';
+  videoCard.style.visibility = 'visible';
+
+  const dropKF = [
+    { opacity: 0, transform: 'translateY(-35px) scale(0.92)', offset: 0 },
+    { opacity: 1, transform: 'translateY(5px) scaleX(1.03) scaleY(0.96)', offset: 0.5 },
+    { opacity: 1, transform: 'translateY(-3px) scale(1)', offset: 0.72 },
+    { opacity: 1, transform: 'translateY(1px) scale(1)', offset: 0.88 },
+    { opacity: 1, transform: 'translateY(0) scale(1)', offset: 1 },
+  ];
+
+  animateEl(audioCard, dropKF, { duration: 550, easing: 'ease-out', fill: 'forwards' });
+  await sleep(100);
+  await animateEl(videoCard, dropKF, { duration: 550, easing: 'ease-out', fill: 'forwards' });
+
+  await crossfadeText(document.getElementById('hintText'), 'SELECT METHOD. SELECT FOLDERS. THEN SYNC.');
+
+  syncArea.classList.add('disabled');
+  syncArea.classList.remove('ready');
+  syncArea.querySelector('.sync-hitarea').style.pointerEvents = '';
+
+  clearLog();
+  if (state.logOpen) {
+    toggleLog();
+  }
+
+  docIcon.style.opacity = '';
+  state.current = 'default';
+
+  // Tell Python to reset state for new batch
+  try {
+    pywebview.api.new_batch();
+  } catch (e) {}
+
+  addLogEntry('NEW BATCH — READY', 'info');
+}
+
+/* ============================================
+   TOGGLE MODE — calls Python
+   ============================================ */
+document.querySelectorAll('.toggle-label').forEach(label => {
+  label.addEventListener('click', () => {
+    document.querySelectorAll('.toggle-label').forEach(l => {
+      l.classList.remove('active');
+      l.classList.add('dimmed');
+    });
+    label.classList.remove('dimmed');
+    label.classList.add('active');
+    try {
+      pywebview.api.set_mode(label.dataset.mode);
+    } catch (e) {}
+  });
+});
+
+/* ============================================
+   WINDOW CONTROLS
+   ============================================ */
+document.getElementById('dotClose').addEventListener('click', () => {
+  try { pywebview.api.close_window(); } catch (e) {}
+});
+document.getElementById('dotMinimize').addEventListener('click', () => {
+  try { pywebview.api.minimize_window(); } catch (e) {}
+});
+</script>
+
+</body>
+</html>
