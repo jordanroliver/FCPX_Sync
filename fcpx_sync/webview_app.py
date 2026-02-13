@@ -29,15 +29,22 @@ _fix_bundled_path()
 
 
 class Api:
-    """Python API exposed to JavaScript via pywebview."""
+    """Python API exposed to JavaScript via pywebview.
 
-    def __init__(self, window: webview.Window):
-        self._window = window
+    Passed as ``js_api`` to ``webview.create_window()``.  The window
+    reference is set after creation via ``set_window()``.
+    """
+
+    def __init__(self):
+        self._window: webview.Window | None = None
         self._audio_folder: Path | None = None
         self._video_folder: Path | None = None
         self._output_path: Path | None = None
         self._mode: str = "timecode"
         self._sync_thread: threading.Thread | None = None
+
+    def set_window(self, window: webview.Window):
+        self._window = window
 
     # ── Folder selection ──────────────────────────────────────
 
@@ -156,10 +163,12 @@ def _get_html_path() -> str:
 
 def main():
     html_path = _get_html_path()
+    api = Api()
 
     window = webview.create_window(
         "Sync Hole",
         html_path,
+        js_api=api,
         width=560,
         height=720,
         resizable=False,
@@ -167,9 +176,7 @@ def main():
         easy_drag=False,
     )
 
-    api = Api(window)
-    window.expose(api)
-
+    api.set_window(window)
     webview.start(debug=("--debug" in sys.argv))
 
 
