@@ -61,14 +61,12 @@ body {
   align-items: center;
   padding: 0 16px;
   gap: 8px;
-  -webkit-app-region: drag;
 }
 
 .window-dots {
   display: flex;
   gap: 8px;
   width: 60px;
-  -webkit-app-region: no-drag;
 }
 
 .dot {
@@ -737,7 +735,7 @@ body {
 
 <div class="app-frame">
   <!-- Title Bar -->
-  <div class="title-bar">
+  <div class="title-bar pywebview-drag-region">
     <div class="window-dots">
       <div class="dot close" id="dotClose"></div>
       <div class="dot minimize" id="dotMinimize"></div>
@@ -978,6 +976,15 @@ function resetSyncArea() {
 
   const audioCard = document.getElementById('audioCard');
   const videoCard = document.getElementById('videoCard');
+
+  // Reset folder selection state so cards can be reselected
+  state.audioSelected = false;
+  state.videoSelected = false;
+  audioCard.classList.remove('selected');
+  videoCard.classList.remove('selected');
+  audioCard.querySelector('.folder-body').innerHTML = 'SELECT<br>AUDIO';
+  videoCard.querySelector('.folder-body').innerHTML = 'SELECT<br>VIDEO';
+
   audioCard.style.visibility = 'visible';
   videoCard.style.visibility = 'visible';
 
@@ -1171,8 +1178,10 @@ async function newBatch() {
     { transform: 'translateY(50px) scale(0.7)', opacity: 0 },
   ], { duration: 400, easing: 'cubic-bezier(0.55, 0, 1, 0.45)', fill: 'forwards' });
 
+  // Cancel all persisted animations so CSS class animations can re-trigger
+  docIcon.getAnimations().forEach(a => a.cancel());
   docIcon.classList.remove('visible');
-  docIcon.style.opacity = '0';
+  docIcon.style.opacity = '';
   docIcon.style.transform = '';
 
   await animateEl(newBatchBtn, [
@@ -1180,6 +1189,7 @@ async function newBatch() {
     { opacity: 0, transform: 'translateY(10px)' },
   ], { duration: 300, easing: 'ease-in', fill: 'forwards' });
 
+  newBatchBtn.getAnimations().forEach(a => a.cancel());
   newBatchBtn.classList.remove('visible');
   newBatchBtn.style.opacity = '';
   newBatchBtn.style.transform = '';
@@ -1208,6 +1218,10 @@ async function newBatch() {
   animateEl(audioCard, dropKF, { duration: 550, easing: 'ease-out', fill: 'forwards' });
   await sleep(100);
   await animateEl(videoCard, dropKF, { duration: 550, easing: 'ease-out', fill: 'forwards' });
+
+  // Cancel persisted fill:forwards so cards are clean for next cycle
+  audioCard.getAnimations().forEach(a => a.cancel());
+  videoCard.getAnimations().forEach(a => a.cancel());
 
   await crossfadeText(document.getElementById('hintText'), 'SELECT METHOD. SELECT FOLDERS. THEN SYNC.');
 
